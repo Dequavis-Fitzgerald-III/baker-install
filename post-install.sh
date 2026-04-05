@@ -172,7 +172,7 @@ add_to_bashrc "alias tz-us='sudo timedatectl set-timezone America/New_York'"
 # TODO: Update this when Jarvis moves to Docker on the server.
 # Current dev alias (local venv) — only useful if you've done TEMP_JARVIS_DEV_SETUP.md
 add_to_bashrc "# TODO: Update jarvis alias when Jarvis moves to server/Docker"
-add_to_bashrc "alias jarvis='source ~/.venvs/jarvis/bin/activate && cd ~/PycharmProjects/jarvis && python main.py'"
+add_to_bashrc "alias jarvis='source ~/.venvs/jarvis/bin/activate && cd ~/projects/jarvis && python main.py'"
 
 success "Aliases added to .bashrc"
 

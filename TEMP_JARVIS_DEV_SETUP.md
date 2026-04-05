@@ -23,8 +23,8 @@ python -m venv ~/.venvs/jarvis
 ### 2. Clone the Jarvis repo
 
 ```bash
-mkdir -p ~/PycharmProjects
-git clone <your-jarvis-repo-url> ~/PycharmProjects/jarvis
+mkdir -p ~/projects
+git clone <your-jarvis-repo-url> ~/projects/jarvis
 ```
 
 > Replace `<your-jarvis-repo-url>` with the actual repo URL.
@@ -33,7 +33,7 @@ git clone <your-jarvis-repo-url> ~/PycharmProjects/jarvis
 
 ```bash
 source ~/.venvs/jarvis/bin/activate
-cd ~/PycharmProjects/jarvis
+cd ~/projects/jarvis
 pip install -r requirements.txt
 ```
 
@@ -57,7 +57,7 @@ ollama pull <model-name>
 The post-install script added a placeholder `jarvis` alias to `~/.bashrc`. It points to the local venv which is now set up — so it should work as-is:
 
 ```bash
-alias jarvis="source ~/.venvs/jarvis/bin/activate && cd ~/PycharmProjects/jarvis && python main.py"
+alias jarvis="source ~/.venvs/jarvis/bin/activate && cd ~/projects/jarvis && python main.py"
 ```
 
 Reload your shell to pick it up:
