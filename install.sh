@@ -296,7 +296,7 @@ PACKAGES=(
     # pipewire-pulse makes it compatible with pulseaudio apps.
     # wireplumber is the session manager that connects apps to audio devices.
     # sof-firmware provides firmware for Intel Sound Open Firmware audio (common in laptops).
-    alsa-utils sof-firmware pipewire pipewire-pulse wireplumber
+    alsa-utils sof-firmware pipewire pipewire-jack pipewire-pulse wireplumber
 
     # Desktop — Hyprland is a Wayland compositor (the thing that draws windows).
     hyprland hyprpaper dunst waybar kitty
@@ -419,6 +419,12 @@ echo "User $USERNAME created"
 # NOPASSWD is NOT set — you'll be prompted for your password.
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 echo "Sudo configured for wheel group"
+
+# --- Console keymap ---
+# vconsole.conf sets the keyboard layout for the console (TTY).
+# mkinitcpio needs this file to exist or it throws an error during build.
+echo "KEYMAP=us" > /etc/vconsole.conf
+echo "Console keymap set"
 
 # --- mkinitcpio (LUKS) ---
 # If LUKS is enabled we need to add the 'encrypt' hook to mkinitcpio.
