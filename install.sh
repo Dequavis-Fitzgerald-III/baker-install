@@ -291,7 +291,7 @@ PACKAGES=(
     networkmanager
 
     # Essential tools
-    sudo nano git base-devel openssh
+    sudo nano git base-devel openssh unzip zip wget curl htop tree man-db
 
     # Audio — pipewire is the modern audio server replacing pulseaudio.
     # pipewire-pulse makes it compatible with pulseaudio apps.
