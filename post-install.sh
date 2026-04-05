@@ -36,7 +36,55 @@ info "Profile: $PROFILE | User: $USERNAME | Dotfiles: $DOTFILES_URL"
 [[ "$EUID" -eq 0 ]] && error "Don't run this as root. Run as $USERNAME."
 
 # =============================================================================
-# SECTION 1 — YAY (AUR Helper)
+# SECTION 1 — SSH SETUP
+# Generate an SSH key and add it to GitHub before anything else.
+# We need SSH working before we can clone private repos or push/pull.
+# =============================================================================
+section "Setting up SSH"
+
+SSH_KEY="$HOME/.ssh/id_ed25519"
+
+if [[ -f "$SSH_KEY" ]]; then
+    warn "SSH key already exists at $SSH_KEY, skipping generation"
+else
+    # Generate an ed25519 SSH key — more secure and shorter than RSA.
+    # -t = key type, -C = comment (just a label, usually your email),
+    # -f = output file, -N "" = no passphrase on the key itself
+    ssh-keygen -t ed25519 -C "$USERNAME@$HOSTNAME" -f "$SSH_KEY" -N ""
+    success "SSH key generated at $SSH_KEY"
+fi
+
+# Start the SSH agent — this holds your key in memory so you don't have
+# to re-enter a passphrase every time you use git.
+eval "$(ssh-agent -s)"
+ssh-add "$SSH_KEY"
+success "SSH key added to agent"
+
+# Print the public key so you can copy it to GitHub.
+echo ""
+echo "============================================"
+echo "  Add this SSH key to GitHub before continuing:"
+echo "  github.com → Settings → SSH and GPG keys → New SSH key"
+echo "============================================"
+echo ""
+cat "$SSH_KEY.pub"
+echo ""
+read -rp "Press ENTER once you've added the key to GitHub..."
+
+# Test the connection to GitHub to confirm the key is working.
+# We use || true because ssh returns exit code 1 even on success here.
+ssh -T git@github.com 2>&1 | grep -q "successfully authenticated" \
+    || warn "Could not verify GitHub connection — continuing anyway. Check your key if clones fail."
+success "SSH setup complete"
+
+# Tell git to always use SSH instead of HTTPS for github.com.
+# This means even HTTPS URLs get rewritten to SSH automatically.
+# So 'git clone https://github.com/...' becomes 'git clone git@github.com:...'
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+success "Git configured to use SSH for all GitHub interactions"
+
+# =============================================================================
+# SECTION 2 — YAY (AUR Helper)
 # yay lets us install packages from the AUR (Arch User Repository).
 # The AUR has packages not in the official repos — like google-chrome.
 # We build yay from source using git and makepkg.
@@ -58,7 +106,7 @@ else
 fi
 
 # =============================================================================
-# SECTION 2 — AUR PACKAGES
+# SECTION 3 — AUR PACKAGES
 # These are packages not in the official Arch repos, installed via yay.
 # =============================================================================
 section "Installing AUR packages"
@@ -74,16 +122,17 @@ yay -S --noconfirm "${AUR_PACKAGES[@]}"
 success "AUR packages installed"
 
 # =============================================================================
-# SECTION 3 — FLATPAK PACKAGES
+# SECTION 4 — FLATPAK PACKAGES
 # Flatpak apps are sandboxed and cross-distro.
 # We add Flathub (the main Flatpak repo) first.
 # =============================================================================
 section "Installing Flatpak packages"
 
 FLATPAK_PACKAGES=(
-    com.spotify.Client    # spotify (music player)
+    com.spotify.Client    # Spotify music player
 )
 
+# Add Flathub remote — --if-not-exists prevents an error if already added.
 flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
 for pkg in "${FLATPAK_PACKAGES[@]}"; do
@@ -93,9 +142,10 @@ done
 success "Flatpak packages installed"
 
 # =============================================================================
-# SECTION 4 — PROJECTS FOLDER & REPOS
+# SECTION 5 — PROJECTS FOLDER & REPOS
 # Create ~/projects and clone both baker-install and dotfiles into it.
 # Keeping everything in ~/projects makes it easy to find and back up.
+# SSH is now set up so these clones will authenticate correctly.
 # =============================================================================
 section "Setting up ~/projects directory"
 
@@ -113,7 +163,6 @@ else
 fi
 
 # Clone dotfiles into ~/projects/dotfiles
-# Note: symlinks below still point into this directory
 DOTFILES_DIR="$HOME/projects/dotfiles"
 
 if [[ -d "$DOTFILES_DIR/.git" ]]; then
@@ -151,35 +200,33 @@ symlink "$DOTFILES_DIR/hypr/hyprland.conf"         "$HOME/.config/hypr/hyprland.
 success "Dotfiles symlinked"
 
 # =============================================================================
-# SECTION 5 — NORDVPN
+# SECTION 6 — NORDVPN
 # nordvpn-bin installs the NordVPN daemon. We need to:
 # 1. Create the nordvpn group (the installer may do this, but we ensure it)
 # 2. Add our user to the nordvpn group so we can run nordvpn commands
 # 3. Enable and start the daemon
-# 4. Set autoconnect
-# Note: You'll need to log out and back in for group membership to take effect.
+# Note: Login and autoconnect must be done manually after reboot as group
+# membership only takes effect after re-login.
 # =============================================================================
 section "Setting up NordVPN"
 
-# Create nordvpn group if it doesn't exist
+# Create nordvpn group if it doesn't exist.
+# -f means don't error if the group already exists.
 sudo groupadd -f nordvpn
 success "nordvpn group ensured"
 
-# Add user to nordvpn group
+# Add user to nordvpn group.
+# -aG means append to group without removing from other groups.
 sudo usermod -aG nordvpn "$USERNAME"
 success "$USERNAME added to nordvpn group"
 
-# Enable and start the daemon
+# Enable and start the daemon.
+# --now means enable AND start immediately rather than just on next boot.
 sudo systemctl enable --now nordvpnd
 success "nordvpnd service enabled and started"
 
-warn "NordVPN: You need to log in manually after reboot."
-warn "Run: nordvpn login"
-warn "Then: nordvpn set autoconnect enabled us"
-warn "(Group membership takes effect after re-login)"
-
 # =============================================================================
-# SECTION 6 — SET LOCALE
+# SECTION 7 — SET LOCALE
 # Set the system locale via localectl.
 # This persists across reboots (writes to /etc/locale.conf).
 # =============================================================================
@@ -188,12 +235,11 @@ section "Setting locale"
 sudo localectl set-locale LANG=en_GB.UTF-8
 success "Locale set to en_GB.UTF-8"
 
-# Set the timezone using the value from install config
 sudo timedatectl set-timezone "$TIMEZONE"
 success "Timezone set to $TIMEZONE"
 
 # =============================================================================
-# SECTION 7 — ENABLE REMAINING SERVICES
+# SECTION 8 — ENABLE REMAINING SERVICES
 # Some services are better enabled after first boot with the full system running.
 # =============================================================================
 section "Enabling services"
@@ -224,16 +270,20 @@ success "All services enabled"
 # =============================================================================
 section "Post-install complete!"
 echo ""
-echo "Things to do manually:"
-echo "  1. Reboot:           sudo reboot"
-echo "  2. Log in to NordVPN: nordvpn login"
-echo "  3. Set autoconnect:  nordvpn set autoconnect enabled us"
+echo "============================================"
+echo "  Things to do manually after this script:"
+echo "============================================"
+echo "  1. Reboot:                    sudo reboot"
+echo "  2. Log in to NordVPN:         nordvpn login"
+echo "  3. Set NordVPN autoconnect:   nordvpn set autoconnect enabled us"
 echo ""
 if [[ "$PROFILE" == "laptop" ]]; then
-    echo "  4. See TEMP_JARVIS_DEV_SETUP.md if you need to set up Jarvis dev environment"
+    echo "  4. See TEMP_JARVIS_DEV_SETUP.md in ~/projects/baker-install"
+    echo "     if you need to set up the Jarvis dev environment"
     echo ""
 fi
 echo "Enjoy your fresh Arch install! 🚀"
 echo ""
-rm -- "$0"
 
+# Self-delete — remove this script from the home directory now it's done.
+rm -- "$0"
