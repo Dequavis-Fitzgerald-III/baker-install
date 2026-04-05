@@ -150,7 +150,10 @@ success "Flatpak packages installed"
 section "Setting up ~/projects directory"
 
 mkdir -p "$HOME/projects"
-success "~/projects directory ready"
+success "~/projects directory created"
+
+mkdir -p "$HOME/.venvs"
+success "~/.venvs directory created"
 
 # Clone baker-install (this repo — useful to have on every machine)
 BAKER_INSTALL_DIR="$HOME/projects/baker-install"
