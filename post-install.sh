@@ -174,6 +174,8 @@ symlink "$DOTFILES_DIR/bash/.bashrc"               "$HOME/.bashrc"
 symlink "$DOTFILES_DIR/kitty/kitty.conf"           "$HOME/.config/kitty/kitty.conf"
 symlink "$DOTFILES_DIR/hypr/hyprland.conf"         "$HOME/.config/hypr/hyprland.conf"
 
+hyprctl reload
+
 success "Dotfiles symlinked"
 
 # =============================================================================
