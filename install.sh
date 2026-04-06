@@ -456,9 +456,10 @@ if [[ "$LUKS" == true ]]; then
     # GRUB needs this to know which device to decrypt at boot.
     ROOT_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 
-    # rd.luks.name tells the kernel the UUID of the LUKS partition and what
+    # cryptdevice tells the kernel the UUID of the LUKS partition and what
     # name to give the decrypted device (/dev/mapper/cryptroot).
-    sed -i "s|GRUB_CMDLINE_LINUX=\"\"|GRUB_CMDLINE_LINUX=\"cryptdevice=\$ROOT_UUID=cryptroot root=/dev/mapper/cryptroot\"|" /etc/default/grub
+    echo "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=\$ROOT_UUID:cryptroot root=/dev/mapper/cryptroot\"" >> /etc/default/grub
+    sed -i 's/^GRUB_CMDLINE_LINUX=""$//' /etc/default/grub
     echo "GRUB configured for LUKS"
 fi
 
