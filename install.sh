@@ -47,32 +47,41 @@ esac
 success "Profile: $PROFILE"
 
 # --- Wifi (laptop only) ---
-# iwctl is the tool on the Arch live ISO for connecting to wifi.
-# We connect here before anything else so pacstrap can download packages.
+# We only ask for wifi credentials if we're not already online.
+# This avoids failing when you have a USB ethernet dongle or ran the script twice.
 if [[ "$PROFILE" == "laptop" ]]; then
-    section "Wifi Setup"
-    read -rp "SSID (wifi network name): " WIFI_SSID
-    read -rsp "Wifi password: " WIFI_PASSWORD
-    echo ""
-    info "Connecting to $WIFI_SSID..."
-    # iwctl commands: power on the adapter, scan for networks, then connect.
-    # We pipe commands into iwctl because it's an interactive program.
-    iwctl --passphrase "$WIFI_PASSWORD" station wlan0 connect "$WIFI_SSID" \
-        || error "Failed to connect to wifi. Check SSID and password."
-    sleep 3
-    # Verify we actually have internet before continuing
-    ping -c 1 archlinux.org > /dev/null 2>&1 \
-        || error "No internet after wifi connect. Check connection and retry."
-    success "Connected to $WIFI_SSID"
+    section "Network Check"
+    if ping -c 1 -W 3 archlinux.org > /dev/null 2>&1; then
+        success "Already connected to the internet, skipping wifi setup"
+    else
+        info "No internet detected. Setting up wifi..."
+        read -rp "SSID (wifi network name): " WIFI_SSID
+        read -rsp "Wifi password: " WIFI_PASSWORD
+        echo ""
+        info "Connecting to $WIFI_SSID..."
+        # iwctl is the wifi tool on the Arch live ISO.
+        # We pipe commands into it because it's an interactive program.
+        iwctl --passphrase "$WIFI_PASSWORD" station wlan0 connect "$WIFI_SSID" \
+            || error "Failed to connect to wifi. Check SSID and password."
+        sleep 3
+        ping -c 1 -W 3 archlinux.org > /dev/null 2>&1 \
+            || error "No internet after wifi connect. Check connection and retry."
+        success "Connected to $WIFI_SSID"
+    fi
 fi
 
 # --- Hostname ---
-read -rp "Hostname (e.g. pearlybaker): " HOSTNAME
-[[ -z "$HOSTNAME" ]] && error "Hostname cannot be empty."
+# Defaults make re-runs faster on known machines.
+read -rp "Hostname [default: nomadbaker for laptop, pearlybaker for workstation]: " HOSTNAME
+if [[ -z "$HOSTNAME" ]]; then
+    [[ "$PROFILE" == "laptop" ]] && HOSTNAME="nomadbaker" || HOSTNAME="pearlybaker"
+fi
+success "Hostname: $HOSTNAME"
 
 # --- Username ---
-read -rp "Username (e.g. clarkehines): " USERNAME
-[[ -z "$USERNAME" ]] && error "Username cannot be empty."
+read -rp "Username [default: clarkehines]: " USERNAME
+USERNAME="${USERNAME:-clarkehines}"
+success "Username: $USERNAME"
 
 # --- Disk ---
 # We list available disks so you can see what's there before typing.
@@ -187,7 +196,7 @@ success "Confirmed, beginning install."
 # We use parted for scripted partitioning (no manual steps).
 # Layout:
 #   Partition 1 — EFI  (512MB, fat32)
-#   Partition 2 — root (rest of disk, ext4) or LUKS container
+#   Partition 2 — root (rest of disk, ext4 or LUKS container)
 # =============================================================================
 section "Partitioning $DISK"
 
@@ -206,10 +215,10 @@ success "EFI partition created"
 parted -s "$DISK" mkpart primary ext4 513MiB 100%
 success "Root partition created"
 
-# Figure out partition names — nvme disks use p1/p2, sata disks use 1/2.
+# Figure out partition names — nvme disks use p1/p2, sata/mmc disks use 1/2.
 # e.g. /dev/nvme0n1 → /dev/nvme0n1p1 and /dev/nvme0n1p2
 # e.g. /dev/sda     → /dev/sda1     and /dev/sda2
-if [[ "$DISK" == *"nvme"* ]]; then
+if [[ "$DISK" == *"nvme"* ]] || [[ "$DISK" == *"mmcblk"* ]]; then
     EFI_PART="${DISK}p1"
     ROOT_PART="${DISK}p2"
 else
@@ -229,7 +238,7 @@ if [[ "$LUKS" == true ]]; then
     # --type luks2 uses the modern LUKS2 format.
     # We echo the passphrase in so it doesn't prompt interactively.
     echo -n "$LUKS_PASS" | cryptsetup luksFormat --type luks2 "$ROOT_PART" -
-    success "LUKS container formatted"
+    success "LUKS container formatted on $ROOT_PART"
 
     # Open (unlock) the LUKS container. This creates /dev/mapper/cryptroot.
     echo -n "$LUKS_PASS" | cryptsetup open "$ROOT_PART" cryptroot -
@@ -247,11 +256,10 @@ fi
 section "Formatting partitions"
 
 # Format EFI as FAT32. -F 32 specifies FAT32 (not FAT16).
-# dosfstools must be installed on the live ISO for this to work — it is by default.
 mkfs.fat -F 32 "$EFI_PART"
 success "EFI formatted as FAT32"
 
-# Format root as ext4. -L sets the partition label for easy identification.
+# Format root as ext4. -L sets a label for easy identification.
 mkfs.ext4 -L root "$ROOT_DEVICE"
 success "Root formatted as ext4"
 
@@ -269,12 +277,12 @@ success "EFI mounted at /mnt$EFI_MOUNT"
 # =============================================================================
 # SECTION 5 — PACSTRAP
 # pacstrap installs packages into /mnt (the new system), not the live ISO.
-# Everything listed here is available in base install without AUR.
+# Everything listed here is available in the official repos (no AUR needed).
 # =============================================================================
 section "Installing base system (pacstrap)"
 info "This will take a while depending on your connection..."
 
-# Build the package list. We start with packages common to all profiles.
+# Build the package list. Start with packages common to all profiles.
 PACKAGES=(
     # Base system
     base linux linux-firmware
@@ -282,8 +290,8 @@ PACKAGES=(
     # CPU microcode — corrects CPU bugs at boot. Always install the right one.
     "$UCODE"
 
-    # Filesystem tools — dosfstools is required to manage the FAT32 EFI partition.
-    # Without it, fstab generation for vfat will fail.
+    # Filesystem tools
+    # dosfstools — required to manage the FAT32 EFI partition
     dosfstools
 
     # Network
@@ -292,19 +300,35 @@ PACKAGES=(
     # Essential tools
     sudo nano git base-devel openssh unzip zip wget curl htop tree man-db
 
-    # Audio — pipewire is the modern audio server replacing pulseaudio.
-    # pipewire-pulse makes it compatible with pulseaudio apps.
-    # wireplumber is the session manager that connects apps to audio devices.
-    # sof-firmware provides firmware for Intel Sound Open Firmware audio (common in laptops).
+    # Audio — pipewire is the modern audio server.
+    # pipewire-pulse provides compatibility with pulseaudio apps.
+    # pipewire-jack provides JACK compatibility (prevents interactive prompt at install).
+    # wireplumber is the session manager that routes audio between apps and devices.
+    # sof-firmware provides firmware for Intel Sound Open Firmware audio hardware.
     alsa-utils sof-firmware pipewire pipewire-jack pipewire-pulse wireplumber
 
-    # Desktop — Hyprland is a Wayland compositor (the thing that draws windows).
+    # Input — libinput is the input device library that handles trackpads, mice, etc.
+    # xf86-input-libinput is the X/Wayland driver wrapper around libinput.
+    # Without these, trackpad may not work at all on a fresh install.
+    libinput xf86-input-libinput
+
+    # Desktop — Hyprland is a Wayland compositor.
+    # hyprpaper — wallpaper daemon for Hyprland
+    # dunst — notification daemon
+    # waybar — status bar
+    # kitty — terminal emulator
+    # rofi-wayland — app launcher (Wayland-compatible fork of rofi)
+    # xdg-desktop-portal-hyprland — allows apps to open file pickers, screen share, etc.
+    # polkit-gnome — authentication agent (prompts for sudo password in GUI apps)
+    # sddm — display manager (the login screen)
     hyprland hyprpaper dunst waybar kitty
     rofi-wayland xdg-desktop-portal-hyprland
     polkit-gnome sddm
 
-    # Bootloader — grub is the bootloader, efibootmgr manages UEFI boot entries,
-    # os-prober detects other operating systems (e.g. Windows) for dual boot.
+    # Bootloader
+    # grub — the bootloader itself
+    # efibootmgr — manages UEFI boot entries so firmware knows to load GRUB
+    # os-prober — detects other OSes (e.g. Windows) for dual boot GRUB entries
     grub efibootmgr os-prober
 
     # System
@@ -328,8 +352,6 @@ if [[ "$PROFILE" == "laptop" ]]; then
     PACKAGES+=(tlp brightnessctl bluez bluez-utils)
 fi
 
-# Run pacstrap with our package list.
-# The [@] expands the array to all elements as separate arguments.
 pacstrap /mnt "${PACKAGES[@]}"
 success "Base system installed"
 
@@ -337,62 +359,49 @@ success "Base system installed"
 # SECTION 6 — FSTAB
 # fstab tells the system what to mount at boot and where.
 # genfstab generates this automatically based on what's currently mounted.
+# -U uses UUIDs instead of device names — UUIDs are stable across reboots.
 # =============================================================================
 section "Generating fstab"
-
-# -U uses UUIDs instead of device names (e.g. /dev/sda1).
-# UUIDs are stable — device names can change if you add/remove disks.
 genfstab -U /mnt >> /mnt/etc/fstab
-
-# Add nofail to the EFI partition entry.
-# nofail means if the EFI partition fails to mount, the system still boots.
-# This is important for dual boot — if Windows does something to the EFI
-# partition, Arch can still start.
-sed -i "s|$EFI_PART|& |" /mnt/etc/fstab  # no-op, just ensures spacing
-sed -i "\|$EFI_MOUNT|s/defaults/defaults,nofail/" /mnt/etc/fstab
-
 success "fstab generated"
 info "fstab contents:"
 cat /mnt/etc/fstab
 
 # =============================================================================
 # SECTION 7 — CHROOT CONFIGURATION
-# arch-chroot changes root into the new system so we can configure it
-# as if we're running inside it. Everything from here runs inside /mnt.
+# arch-chroot changes root into the new system so we configure it as if
+# we're running inside it. All commands from here run inside /mnt.
+#
+# Variables are expanded by the outer shell before the heredoc is sent in
+# (note: no quotes around EOF). Escape \$ anywhere you need a literal dollar
+# sign evaluated *inside* the chroot instead.
 # =============================================================================
 section "Entering chroot to configure system"
 
-# We pass all our variables into the chroot via a heredoc.
-# The variables are expanded before the heredoc runs (note: no quotes around EOF).
 arch-chroot /mnt /bin/bash <<EOF
 
 set -e
 
 # --- Timezone ---
-# Create a symlink from the timezone file to /etc/localtime.
-# This is how Arch (and most Linux distros) set the timezone.
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
-
-# Sync the hardware clock to the system clock using UTC.
-# We always keep the hardware clock on UTC — timezone is just a display setting.
 hwclock --systohc
 echo "Timezone set to $TIMEZONE"
 
 # --- Locale ---
-# Uncomment en_GB.UTF-8 in locale.gen, then generate the locale.
-# en_GB gives us British English — correct date formats, spellings etc.
 sed -i 's/^#en_GB.UTF-8/en_GB.UTF-8/' /etc/locale.gen
 locale-gen
-
-# Write the locale config file. No trailing whitespace — it causes issues.
 echo 'LANG=en_GB.UTF-8' > /etc/locale.conf
-echo "Locale set to en_GB.UTF-8"
+echo "Locale set"
+
+# --- Console keymap ---
+# vconsole.conf sets the keyboard layout for the TTY/console.
+# This file must exist before mkinitcpio runs or the keymap hook
+# won't have anything to bake into the initramfs.
+echo "KEYMAP=us" > /etc/vconsole.conf
+echo "Console keymap set"
 
 # --- Hostname ---
 echo "$HOSTNAME" > /etc/hostname
-
-# /etc/hosts maps hostnames to IP addresses locally.
-# 127.0.1.1 should map to your hostname — required for some apps.
 cat > /etc/hosts <<HOSTS
 127.0.0.1   localhost
 ::1         localhost
@@ -401,73 +410,82 @@ HOSTS
 echo "Hostname set to $HOSTNAME"
 
 # --- Passwords ---
-# Set root password. We echo it in to avoid interactive prompt.
 echo "root:$ROOT_PASSWORD" | chpasswd
 echo "Root password set"
 
 # --- User ---
-# Create the user with:
-#   -m  = create home directory
-#   -G  = add to groups (wheel = sudo access, audio/video = device access)
-#   -s  = set default shell
 useradd -m -G wheel,audio,video,storage -s /bin/bash "$USERNAME"
 echo "$USERNAME:$USER_PASSWORD" | chpasswd
 echo "User $USERNAME created"
 
 # --- Sudo ---
-# Uncomment the %wheel line so members of the wheel group can use sudo.
-# NOPASSWD is NOT set — you'll be prompted for your password.
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 echo "Sudo configured for wheel group"
 
-# --- Console keymap ---
-# vconsole.conf sets the keyboard layout for the console (TTY).
-# mkinitcpio needs this file to exist or it throws an error during build.
-echo "KEYMAP=us" > /etc/vconsole.conf
-echo "Console keymap set"
+# --- Remove hyprland-welcome ---
+# hyprland-welcome is an unwanted welcome screen that gets pulled in as a
+# dependency of hyprland. We remove it unconditionally — we never want it.
+pacman -Rns --noconfirm hyprland-welcome 2>/dev/null || true
+echo "hyprland-welcome removed (or was not present)"
 
-# --- mkinitcpio (LUKS) ---
-# If LUKS is enabled we need to add the 'encrypt' hook to mkinitcpio.
-# Hooks run during boot to prepare the system — encrypt unlocks the LUKS
-# partition before the root filesystem is mounted.
-# keyboard and keymap hooks ensure your keyboard works at the passphrase prompt.
+# --- mkinitcpio ---
+# If LUKS is enabled we need the 'encrypt' hook so the initramfs can unlock
+# the LUKS partition before mounting root.
+#
+# CRITICAL: We replace the entire HOOKS line rather than patching it with
+# multiple seds. Patching is fragile — if the default line is slightly
+# different than expected, the result is a broken initramfs.
+#
+# Hook order explanation:
+#   base       — minimal busybox environment
+#   udev       — device manager (REQUIRED for 'encrypt' hook — do NOT use systemd here)
+#   autodetect — trims the initramfs to only include modules needed for this hardware
+#   microcode  — loads CPU microcode early
+#   modconf    — loads modules listed in /etc/modules-load.d/
+#   kms        — loads kernel mode setting modules early (better display at boot)
+#   keyboard   — enables keyboard input at the passphrase prompt
+#   keymap     — loads the keymap from vconsole.conf at the passphrase prompt
+#   block      — enables block device support (needed before encrypt)
+#   encrypt    — unlocks the LUKS partition (only added if LUKS is enabled)
+#   filesystems — mounts filesystems
+#   fsck       — checks filesystem integrity at boot
 if [[ "$LUKS" == true ]]; then
-    sed -i 's/HOOKS=(base udev autodetect/HOOKS=(base udev autodetect keyboard keymap/' /etc/mkinitcpio.conf
-    sed -i 's/block filesystems/block encrypt filesystems/' /etc/mkinitcpio.conf
-    mkinitcpio -P  # Regenerate all initramfs images
-    echo "mkinitcpio regenerated with encrypt hook"
+    sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap block encrypt filesystems fsck)/' /etc/mkinitcpio.conf
+    echo "mkinitcpio HOOKS updated for LUKS"
+else
+    sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap block filesystems fsck)/' /etc/mkinitcpio.conf
+    echo "mkinitcpio HOOKS updated"
 fi
 
-# --- Bootloader: GRUB ---
-# GRUB is the bootloader that runs when the machine powers on.
-# efibootmgr manages the UEFI boot entries so the firmware knows to run GRUB.
-#
-# --target=x86_64-efi        — install for 64-bit UEFI systems
+# Regenerate all initramfs images with the new hooks.
+mkinitcpio -P
+echo "mkinitcpio regenerated"
+
+# --- Bootloader: GRUB install ---
+# --target=x86_64-efi        — install for 64-bit UEFI
 # --efi-directory=$EFI_MOUNT — where the EFI partition is mounted
-# --bootloader-id=GRUB       — the name that appears in the UEFI firmware menu
+# --bootloader-id=GRUB       — name that appears in the UEFI firmware menu
 grub-install --target=x86_64-efi --efi-directory=$EFI_MOUNT --bootloader-id=GRUB
 echo "GRUB installed"
 
-# --- GRUB config for LUKS ---
-# If LUKS is enabled, we need to tell GRUB how to unlock the encrypted partition
-# before it can find the kernel. This goes in GRUB_CMDLINE_LINUX in /etc/default/grub.
+# --- GRUB config: LUKS ---
+# We need to tell GRUB the UUID of the encrypted partition so it can pass
+# the right cryptdevice parameter to the kernel at boot.
+#
+# We replace the existing GRUB_CMDLINE_LINUX line directly rather than
+# appending a new line and trying to delete the old one. Append + delete
+# is fragile — if the delete sed doesn't match, you end up with two lines
+# and subtle boot failures.
 if [[ "$LUKS" == true ]]; then
-    # Get the UUID of the raw encrypted partition (before decryption).
-    # GRUB needs this to know which device to decrypt at boot.
+    # blkid gets the UUID of the raw encrypted partition (not the mapper device).
     ROOT_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
-
-    # cryptdevice tells the kernel the UUID of the LUKS partition and what
-    # name to give the decrypted device (/dev/mapper/cryptroot).
-    echo "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=\$ROOT_UUID:cryptroot root=/dev/mapper/cryptroot\"" >> /etc/default/grub
-    sed -i 's/^GRUB_CMDLINE_LINUX=""$//' /etc/default/grub
-    echo "GRUB configured for LUKS"
+    sed -i "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=\${ROOT_UUID}:cryptroot root=/dev/mapper/cryptroot\"|" /etc/default/grub
+    echo "GRUB configured for LUKS (UUID: \$ROOT_UUID)"
 fi
 
-# --- os-prober for dual boot ---
-# os-prober scans for other operating systems and adds them to the GRUB menu.
-# It's disabled by default in /etc/default/grub for security reasons, so we
-# explicitly enable it here for dual boot. Without this Windows won't appear
-# in the GRUB menu.
+# --- GRUB config: dual boot ---
+# os-prober is disabled by default in /etc/default/grub. Enable it so
+# Windows shows up in the GRUB menu on dual boot machines.
 if [[ "$DUAL_BOOT" == true ]]; then
     if grep -q "GRUB_DISABLE_OS_PROBER" /etc/default/grub; then
         sed -i 's/.*GRUB_DISABLE_OS_PROBER.*/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
@@ -477,22 +495,21 @@ if [[ "$DUAL_BOOT" == true ]]; then
     echo "os-prober enabled for dual boot"
 fi
 
-# Generate the final GRUB config file.
-# grub-mkconfig reads /etc/default/grub, auto-detects kernels and other OSes
-# via os-prober, then writes the config to /boot/grub/grub.cfg.
+# --- GRUB config: generate ---
+# grub-mkconfig MUST run after all edits to /etc/default/grub are complete.
+# It reads the config file, detects kernels and other OSes, and writes
+# the final /boot/grub/grub.cfg that GRUB actually reads at boot.
 grub-mkconfig -o /boot/grub/grub.cfg
 echo "GRUB config generated"
 
 # --- Services ---
-# Enable services so they start automatically on boot.
-systemctl enable NetworkManager   # Network management
-systemctl enable sddm             # Display manager (login screen)
-systemctl enable ufw              # Firewall
+systemctl enable NetworkManager
+systemctl enable sddm
+systemctl enable ufw
 
-# Profile-specific services
 if [[ "$PROFILE" == "laptop" ]]; then
-    systemctl enable tlp          # Battery management
-    systemctl enable bluetooth    # Bluetooth
+    systemctl enable tlp
+    systemctl enable bluetooth
 fi
 
 echo "Services enabled"
@@ -505,7 +522,8 @@ success "Chroot configuration done"
 # =============================================================================
 # SECTION 8 — POST-INSTALL SCRIPT SETUP
 # Copy post-install.sh to the new user's home directory so it's ready
-# to run after first boot.
+# to run after first boot. Also write a config file with the values
+# the post-install script needs.
 # =============================================================================
 section "Setting up post-install script"
 
@@ -513,12 +531,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/post-install.sh" ]]; then
     cp "$SCRIPT_DIR/post-install.sh" /mnt/home/"$USERNAME"/
     chmod +x /mnt/home/"$USERNAME"/post-install.sh
+    # Write config for post-install to read. No HOSTNAME here — post-install
+    # reads it from the live system with $(hostname).
     cat > /mnt/home/"$USERNAME"/.install-config <<INSTALLCONF
 USERNAME=$USERNAME
 PROFILE=$PROFILE
 DOTFILES_URL=$DOTFILES_URL
 TIMEZONE=$TIMEZONE
 INSTALLCONF
+    chown "$USERNAME":"$USERNAME" /mnt/home/"$USERNAME"/post-install.sh
+    chown "$USERNAME":"$USERNAME" /mnt/home/"$USERNAME"/.install-config
     success "post-install.sh copied to /home/$USERNAME/"
     info "After first boot, run: bash ~/post-install.sh"
 else
