@@ -179,17 +179,7 @@ hyprctl reload
 success "Dotfiles symlinked"
 
 # =============================================================================
-# SECTION 6 — HYPRLAND-WELCOME REMOVAL (fallback)
-# Should already be removed by install.sh during chroot, but we remove it
-# here too as a safety net in case it was reinstalled as a dependency.
-# =============================================================================
-section "Removing hyprland-welcome"
-sudo pacman -Rns --noconfirm hyprland-welcome 2>/dev/null \
-    && success "hyprland-welcome removed" \
-    || success "hyprland-welcome was not present"
-
-# =============================================================================
-# SECTION 7 — NORDVPN
+# SECTION 6 — NORDVPN
 # nordvpn-bin installs the daemon. We create the group, add the user,
 # and start the service. Login and autoconnect are manual steps after reboot
 # because group membership only takes effect after re-login.
@@ -202,7 +192,7 @@ sudo systemctl enable --now nordvpnd
 success "NordVPN configured (login manually after reboot: nordvpn login)"
 
 # =============================================================================
-# SECTION 8 — LOCALE & TIMEZONE (ensure correct via localectl)
+# SECTION 7 — LOCALE & TIMEZONE (ensure correct via localectl)
 # These were set in chroot but we confirm them here via localectl/timedatectl
 # which write to the live system config and persist across reboots.
 # =============================================================================
@@ -215,7 +205,7 @@ sudo timedatectl set-timezone "$TIMEZONE"
 success "Timezone confirmed: $TIMEZONE"
 
 # =============================================================================
-# SECTION 9 — SERVICES
+# SECTION 8 — SERVICES
 # Most services were enabled in chroot. We ensure them here and add
 # the per-user pipewire services which can only run in a user session.
 # =============================================================================
@@ -241,7 +231,7 @@ fi
 success "All services enabled"
 
 # =============================================================================
-# SECTION 10 — SSH SETUP
+# SECTION 9 — SSH SETUP
 # This is the last step intentionally.
 #
 # Everything above used HTTPS so no key was needed. Now that you have a
