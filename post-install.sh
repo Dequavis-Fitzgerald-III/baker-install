@@ -26,68 +26,48 @@ section() { echo -e "\n${BOLD}=== $1 ===${NC}\n"; }
 CONFIG_FILE="$HOME/.install-config"
 [[ ! -f "$CONFIG_FILE" ]] && error "Config file not found at $CONFIG_FILE"
 
-# Source the config — this loads USERNAME, PROFILE, DOTFILES_URL, TIMEZONE
-# into our environment as variables.
+# Source the config — loads USERNAME, PROFILE, DOTFILES_URL, TIMEZONE
 source "$CONFIG_FILE"
 success "Loaded install config"
 info "Profile: $PROFILE | User: $USERNAME | Dotfiles: $DOTFILES_URL"
 
-# Make sure we're not running as root — this script should run as the user.
+# Make sure we're not running as root.
 [[ "$EUID" -eq 0 ]] && error "Don't run this as root. Run as $USERNAME."
 
 # =============================================================================
-# SECTION 1 — SSH SETUP
-# Generate an SSH key and add it to GitHub before anything else.
-# We need SSH working before we can clone private repos or push/pull.
+# SECTION 1 — NETWORK CHECK
+# NetworkManager should be up from the enabled service, but we verify
+# connectivity before anything else tries to hit the internet.
+# On laptop we offer to connect via nmcli if not already online.
 # =============================================================================
-section "Setting up SSH"
+section "Network Check"
 
-SSH_KEY="$HOME/.ssh/id_ed25519"
-
-if [[ -f "$SSH_KEY" ]]; then
-    warn "SSH key already exists at $SSH_KEY, skipping generation"
+if ping -c 1 -W 5 archlinux.org > /dev/null 2>&1; then
+    success "Internet connection confirmed"
 else
-    # Generate an ed25519 SSH key — more secure and shorter than RSA.
-    # -t = key type, -C = comment (just a label, usually your email),
-    # -f = output file, -N "" = no passphrase on the key itself
-    ssh-keygen -t ed25519 -C "$USERNAME@$HOSTNAME" -f "$SSH_KEY" -N ""
-    success "SSH key generated at $SSH_KEY"
+    warn "No internet detected."
+    if [[ "$PROFILE" == "laptop" ]]; then
+        info "Attempting wifi connection via NetworkManager..."
+        read -rp "SSID (wifi network name): " WIFI_SSID
+        read -rsp "Wifi password: " WIFI_PASSWORD
+        echo ""
+        # nmcli is the NetworkManager command line tool.
+        # 'device wifi connect' connects to an SSID with a password.
+        nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASSWORD" \
+            || error "Failed to connect. Check SSID and password."
+        sleep 3
+        ping -c 1 -W 5 archlinux.org > /dev/null 2>&1 \
+            || error "Still no internet after wifi connect. Check connection and retry."
+        success "Connected to $WIFI_SSID"
+    else
+        error "No internet on workstation. Check your ethernet connection and retry."
+    fi
 fi
-
-# Start the SSH agent — this holds your key in memory so you don't have
-# to re-enter a passphrase every time you use git.
-eval "$(ssh-agent -s)"
-ssh-add "$SSH_KEY"
-success "SSH key added to agent"
-
-# Print the public key so you can copy it to GitHub.
-echo ""
-echo "============================================"
-echo "  Add this SSH key to GitHub before continuing:"
-echo "  github.com → Settings → SSH and GPG keys → New SSH key"
-echo "============================================"
-echo ""
-cat "$SSH_KEY.pub"
-echo ""
-read -rp "Press ENTER once you've added the key to GitHub..."
-
-# Test the connection to GitHub to confirm the key is working.
-# We use || true because ssh returns exit code 1 even on success here.
-ssh -T git@github.com 2>&1 | grep -q "successfully authenticated" \
-    || warn "Could not verify GitHub connection — continuing anyway. Check your key if clones fail."
-success "SSH setup complete"
-
-# Tell git to always use SSH instead of HTTPS for github.com.
-# This means even HTTPS URLs get rewritten to SSH automatically.
-# So 'git clone https://github.com/...' becomes 'git clone git@github.com:...'
-git config --global url."git@github.com:".insteadOf "https://github.com/"
-success "Git configured to use SSH for all GitHub interactions"
 
 # =============================================================================
 # SECTION 2 — YAY (AUR Helper)
 # yay lets us install packages from the AUR (Arch User Repository).
-# The AUR has packages not in the official repos — like google-chrome.
-# We build yay from source using git and makepkg.
+# We build it from source using git and makepkg — the standard AUR method.
 # =============================================================================
 section "Installing yay (AUR helper)"
 
@@ -95,10 +75,8 @@ if command -v yay &> /dev/null; then
     warn "yay already installed, skipping"
 else
     cd /tmp
-    # Clone the yay PKGBUILD from AUR
     git clone https://aur.archlinux.org/yay.git
     cd yay
-    # makepkg builds and installs the package.
     # -s = install dependencies, -i = install after build, --noconfirm = no prompts
     makepkg -si --noconfirm
     cd ~
@@ -107,7 +85,7 @@ fi
 
 # =============================================================================
 # SECTION 3 — AUR PACKAGES
-# These are packages not in the official Arch repos, installed via yay.
+# Packages not in the official Arch repos, installed via yay.
 # =============================================================================
 section "Installing AUR packages"
 
@@ -117,22 +95,19 @@ AUR_PACKAGES=(
     jetbrains-toolbox    # JetBrains IDE manager (PyCharm, etc.)
 )
 
-# yay works just like pacman for installing — same flags.
 yay -S --noconfirm "${AUR_PACKAGES[@]}"
 success "AUR packages installed"
 
 # =============================================================================
 # SECTION 4 — FLATPAK PACKAGES
-# Flatpak apps are sandboxed and cross-distro.
-# We add Flathub (the main Flatpak repo) first.
+# Flatpak apps are sandboxed. We add Flathub (the main repo) first.
 # =============================================================================
 section "Installing Flatpak packages"
 
 FLATPAK_PACKAGES=(
-    com.spotify.Client    # Spotify music player
+    com.spotify.Client
 )
 
-# Add Flathub remote — --if-not-exists prevents an error if already added.
 flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
 for pkg in "${FLATPAK_PACKAGES[@]}"; do
@@ -143,38 +118,33 @@ success "Flatpak packages installed"
 
 # =============================================================================
 # SECTION 5 — HOME DIRECTORY SETUP
-# Create ~/projects and clone both baker-install and dotfiles into it.
-# Keeping everything in ~/projects makes it easy to find and back up.
-# SSH is now set up so these clones will authenticate correctly.
+# Create standard directories and clone repos over HTTPS.
+#
+# We use HTTPS for ALL clones here — no SSH key is needed for public repos
+# and it avoids any dependency on the key being set up yet.
+# SSH setup happens at the very end of this script once you're at a working
+# desktop and can easily copy the key.
 # =============================================================================
-section "Setting up home directory at $HOME"
+section "Setting up home directory"
 
 mkdir -p "$HOME/documents"
-success "~/documents directory created"
-
 mkdir -p "$HOME/downloads"
-success "~/downloads directory created"
-
 mkdir -p "$HOME/projects"
-success "~/projects directory created"
-
 mkdir -p "$HOME/.venvs"
-success "~/.venvs directory created"
+success "Home directories created"
 
-
-# Clone baker-install (this repo — useful to have on every machine)
+# Clone baker-install (over HTTPS — no SSH key needed)
 BAKER_INSTALL_DIR="$HOME/projects/baker-install"
 if [[ -d "$BAKER_INSTALL_DIR/.git" ]]; then
     warn "baker-install already exists, pulling latest..."
     git -C "$BAKER_INSTALL_DIR" pull
 else
-    git clone git@github.com:Dequavis-Fitzgerald-III/baker-install.git "$BAKER_INSTALL_DIR"
+    git clone https://github.com/Dequavis-Fitzgerald-III/baker-install.git "$BAKER_INSTALL_DIR"
     success "baker-install cloned to $BAKER_INSTALL_DIR"
 fi
 
-# Clone dotfiles into ~/projects/dotfiles
+# Clone dotfiles (over HTTPS — no SSH key needed)
 DOTFILES_DIR="$HOME/projects/dotfiles"
-
 if [[ -d "$DOTFILES_DIR/.git" ]]; then
     warn "Dotfiles already exists, pulling latest..."
     git -C "$DOTFILES_DIR" pull
@@ -184,12 +154,11 @@ else
 fi
 
 # Helper function to create a symlink safely.
-# If the target already exists (and isn't a symlink), we back it up first.
+# If the target already exists and isn't already a symlink, we back it up.
 symlink() {
-    local src="$1"   # file in dotfiles repo
-    local dst="$2"   # where the app expects it
+    local src="$1"   # file in the dotfiles repo
+    local dst="$2"   # where the app expects it to be
 
-    # Create parent directory if it doesn't exist
     mkdir -p "$(dirname "$dst")"
 
     if [[ -e "$dst" && ! -L "$dst" ]]; then
@@ -201,8 +170,6 @@ symlink() {
     success "Linked $src → $dst"
 }
 
-# Symlink each config file.
-# If your dotfiles repo structure changes, update these paths.
 symlink "$DOTFILES_DIR/bash/.bashrc"               "$HOME/.bashrc"
 symlink "$DOTFILES_DIR/kitty/kitty.conf"           "$HOME/.config/kitty/kitty.conf"
 symlink "$DOTFILES_DIR/hypr/hyprland.conf"         "$HOME/.config/hypr/hyprland.conf"
@@ -210,63 +177,59 @@ symlink "$DOTFILES_DIR/hypr/hyprland.conf"         "$HOME/.config/hypr/hyprland.
 success "Dotfiles symlinked"
 
 # =============================================================================
-# SECTION 6 — NORDVPN
-# nordvpn-bin installs the NordVPN daemon. We need to:
-# 1. Create the nordvpn group (the installer may do this, but we ensure it)
-# 2. Add our user to the nordvpn group so we can run nordvpn commands
-# 3. Enable and start the daemon
-# Note: Login and autoconnect must be done manually after reboot as group
-# membership only takes effect after re-login.
+# SECTION 6 — HYPRLAND-WELCOME REMOVAL (fallback)
+# Should already be removed by install.sh during chroot, but we remove it
+# here too as a safety net in case it was reinstalled as a dependency.
+# =============================================================================
+section "Removing hyprland-welcome"
+sudo pacman -Rns --noconfirm hyprland-welcome 2>/dev/null \
+    && success "hyprland-welcome removed" \
+    || success "hyprland-welcome was not present"
+
+# =============================================================================
+# SECTION 7 — NORDVPN
+# nordvpn-bin installs the daemon. We create the group, add the user,
+# and start the service. Login and autoconnect are manual steps after reboot
+# because group membership only takes effect after re-login.
 # =============================================================================
 section "Setting up NordVPN"
 
-# Create nordvpn group if it doesn't exist.
-# -f means don't error if the group already exists.
 sudo groupadd -f nordvpn
-success "nordvpn group ensured"
-
-# Add user to nordvpn group.
-# -aG means append to group without removing from other groups.
 sudo usermod -aG nordvpn "$USERNAME"
-success "$USERNAME added to nordvpn group"
-
-# Enable and start the daemon.
-# --now means enable AND start immediately rather than just on next boot.
 sudo systemctl enable --now nordvpnd
-success "nordvpnd service enabled and started"
+success "NordVPN configured (login manually after reboot: nordvpn login)"
 
 # =============================================================================
-# SECTION 7 — SET LOCALE
-# Set the system locale via localectl.
-# This persists across reboots (writes to /etc/locale.conf).
+# SECTION 8 — LOCALE & TIMEZONE (ensure correct via localectl)
+# These were set in chroot but we confirm them here via localectl/timedatectl
+# which write to the live system config and persist across reboots.
 # =============================================================================
-section "Setting locale"
+section "Confirming locale and timezone"
 
 sudo localectl set-locale LANG=en_GB.UTF-8
-success "Locale set to en_GB.UTF-8"
+success "Locale confirmed: en_GB.UTF-8"
 
 sudo timedatectl set-timezone "$TIMEZONE"
-success "Timezone set to $TIMEZONE"
+success "Timezone confirmed: $TIMEZONE"
 
 # =============================================================================
-# SECTION 8 — ENABLE REMAINING SERVICES
-# Some services are better enabled after first boot with the full system running.
+# SECTION 9 — SERVICES
+# Most services were enabled in chroot. We ensure them here and add
+# the per-user pipewire services which can only run in a user session.
 # =============================================================================
 section "Enabling services"
 
-# These should already be enabled from chroot, but we ensure them here too.
 sudo systemctl enable --now NetworkManager
 sudo systemctl enable --now sddm
 sudo systemctl enable --now ufw
 
-# Pipewire is a user service — it runs per-user, not system-wide.
-# systemctl --user manages services in the user session.
+# Pipewire runs as a user service (per-session, not system-wide).
+# systemctl --user manages the current user's session services.
 systemctl --user enable --now pipewire
 systemctl --user enable --now pipewire-pulse
 systemctl --user enable --now wireplumber
 success "Pipewire user services enabled"
 
-# Profile-specific services
 if [[ "$PROFILE" == "laptop" ]]; then
     sudo systemctl enable --now tlp
     sudo systemctl enable --now bluetooth
@@ -276,26 +239,91 @@ fi
 success "All services enabled"
 
 # =============================================================================
+# SECTION 10 — SSH SETUP
+# This is the last step intentionally.
+#
+# Everything above used HTTPS so no key was needed. Now that you have a
+# working desktop, generate your SSH key and add it to GitHub directly
+# from this terminal — no second device required, just copy and paste.
+#
+# After the key is on GitHub we set a git URL rewrite rule so all future
+# git operations automatically use SSH instead of HTTPS. You won't need
+# to change any remote URLs manually.
+# =============================================================================
+section "SSH Setup"
+
+SSH_KEY="$HOME/.ssh/id_ed25519"
+
+if [[ -f "$SSH_KEY" ]]; then
+    warn "SSH key already exists at $SSH_KEY, skipping generation"
+else
+    # ed25519 is more secure and produces shorter keys than RSA.
+    # -C is just a label (comment) to identify the key on GitHub.
+    # -N "" means no passphrase on the key file itself.
+    ssh-keygen -t ed25519 -C "$(whoami)@$(hostname)" -f "$SSH_KEY" -N ""
+    success "SSH key generated"
+fi
+
+# Start the SSH agent and load the key into it.
+# The agent holds the key in memory so git doesn't prompt repeatedly.
+eval "$(ssh-agent -s)"
+ssh-add "$SSH_KEY"
+success "SSH key added to agent"
+
+# Print the public key — copy this into GitHub.
+echo ""
+echo "============================================================"
+echo "  Copy the key below and add it to GitHub:"
+echo "  github.com → Settings → SSH and GPG keys → New SSH key"
+echo "============================================================"
+echo ""
+cat "$SSH_KEY.pub"
+echo ""
+read -rp "Press ENTER once you've added the key to GitHub..."
+
+# Verify the connection. SSH to GitHub returns exit code 1 even on success
+# (it prints a greeting and disconnects), so we check the output text instead.
+SSH_TEST=$(ssh -T git@github.com 2>&1 || true)
+if echo "$SSH_TEST" | grep -q "successfully authenticated"; then
+    success "GitHub SSH connection verified"
+else
+    warn "Could not verify GitHub SSH connection. Output was: $SSH_TEST"
+    warn "Continuing anyway — check your key if git push/pull fails later."
+fi
+
+# Set git to rewrite all github.com HTTPS URLs to SSH automatically.
+# This means 'git clone https://github.com/...' and 'git pull' etc. all
+# go through SSH from this point on, without changing any remote URLs.
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+success "Git configured to use SSH for all GitHub interactions"
+
+# Update the remote URLs on the repos we already cloned over HTTPS,
+# so push/pull on those repos also goes through SSH going forward.
+git -C "$HOME/projects/dotfiles" remote set-url origin "git@github.com:${DOTFILES_URL#https://github.com/}"
+git -C "$HOME/projects/baker-install" remote set-url origin "git@github.com:Dequavis-Fitzgerald-III/baker-install.git"
+success "Remote URLs updated to SSH on existing repos"
+
+# =============================================================================
 # DONE
 # =============================================================================
 section "Post-install complete!"
 echo ""
-echo "============================================"
-echo "  Things to do manually after this script:"
-echo "============================================"
-echo "  1. Reboot:                    sudo reboot"
-echo "  2. Log in to NordVPN:         nordvpn login"
-echo "  3. Set NordVPN autoconnect:   nordvpn set autoconnect enabled us"
-echo "  4. Set Chrome download location:     Settings → Downloads → ~/downloads"
-echo "  5. Set PyCharm projects location:    Toolbox → Settings → ~/projects"
-echo "  6. Set PyCharm venv location:        Settings → Tools → Python Integrated Tools → ~/venvs"
+echo "============================================================"
+echo "  Things to do manually:"
+echo "============================================================"
+echo "  1. Reboot:                         sudo reboot"
+echo "  2. Log in to NordVPN:              nordvpn login"
+echo "  3. Set NordVPN autoconnect:        nordvpn set autoconnect enabled us"
+echo "  4. Set Chrome download location:   Settings → Downloads → ~/downloads"
+echo "  5. Set PyCharm projects location:  Toolbox → Settings → ~/projects"
+echo "  6. Set PyCharm venv location:      Settings → Tools → Python Integrated Tools → ~/.venvs"
 echo ""
 if [[ "$PROFILE" == "laptop" ]]; then
-    echo "  4. See TEMP_JARVIS_DEV_SETUP.md in ~/projects/baker-install"
-    echo "     if you need to set up the Jarvis dev environment"
+    echo "  See TEMP_JARVIS_DEV_SETUP.md in ~/projects/baker-install"
+    echo "  if you need to set up the Jarvis dev environment."
     echo ""
 fi
-echo "Enjoy your fresh Arch install! 🚀"
+echo "Enjoy your fresh Arch install!"
 echo ""
 
 # Self-delete — remove this script from the home directory now it's done.
