@@ -427,7 +427,7 @@ echo "root:$ROOT_PASSWORD" | chpasswd
 echo "Root password set"
 
 # --- User ---
-useradd -m -G wheel,audio,video,storage -s /bin/bash "$USERNAME"
+useradd -m -G wheel,audio,video,storage,input -s /bin/bash "$USERNAME"
 echo "$USERNAME:$USER_PASSWORD" | chpasswd
 echo "User $USERNAME created"
 
