@@ -173,10 +173,11 @@ symlink() {
 symlink "$DOTFILES_DIR/bash/.bashrc"               "$HOME/.bashrc"
 symlink "$DOTFILES_DIR/kitty/kitty.conf"           "$HOME/.config/kitty/kitty.conf"
 symlink "$DOTFILES_DIR/hypr/hyprland.conf"         "$HOME/.config/hypr/hyprland.conf"
-
-hyprctl reload
-
 success "Dotfiles symlinked"
+
+sleep 1
+hyprctl reload || true
+success "Hyprland config reloaded"
 
 # =============================================================================
 # SECTION 6 — NORDVPN
@@ -318,7 +319,6 @@ fi
 echo "Enjoy your fresh Arch install!"
 echo ""
 
-# Self-delete — remove this script, install.sh and .install-config from the home directory now it's done.
-rm -rf ~/install.sh
-rm -rf ~/.install.config
+# Self-delete — remove this script and .install-config from the home directory now it's done.
+rm -f "$HOME/.install-config"
 rm -- "$0"
