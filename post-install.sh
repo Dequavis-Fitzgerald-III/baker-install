@@ -99,7 +99,19 @@ yay -S --noconfirm "${AUR_PACKAGES[@]}"
 success "AUR packages installed"
 
 # =============================================================================
-# SECTION 4 — FLATPAK PACKAGES
+# SECTION 4 — CHROME FLAGS
+# Tell Chrome to use its own built-in password store rather than asking
+# for a system keyring. Prevents the "choose password for new keyring"
+# prompt on first launch. Safe with LUKS — disk is already encrypted at rest.
+# =============================================================================
+section "Configuring Chrome"
+
+mkdir -p "$HOME/.config"
+echo "--password-store=basic" > "$HOME/.config/chrome-flags.conf"
+success "Chrome configured to use built-in password store (no keyring prompt)"
+
+# =============================================================================
+# SECTION 5 — FLATPAK PACKAGES
 # Flatpak apps are sandboxed. We add Flathub (the main repo) first.
 # =============================================================================
 section "Installing Flatpak packages"
@@ -117,7 +129,7 @@ done
 success "Flatpak packages installed"
 
 # =============================================================================
-# SECTION 5 — HOME DIRECTORY SETUP
+# SECTION 6 — HOME DIRECTORY SETUP
 # Create standard directories and clone repos over HTTPS.
 #
 # We use HTTPS for ALL clones here — no SSH key is needed for public repos
@@ -180,7 +192,7 @@ hyprctl reload || true
 success "Hyprland config reloaded"
 
 # =============================================================================
-# SECTION 6 — NORDVPN
+# SECTION 7 — NORDVPN
 # nordvpn-bin installs the daemon. We create the group, add the user,
 # and start the service. Login and autoconnect are manual steps after reboot
 # because group membership only takes effect after re-login.
@@ -193,7 +205,7 @@ sudo systemctl enable --now nordvpnd
 success "NordVPN configured (login manually after reboot: nordvpn login)"
 
 # =============================================================================
-# SECTION 7 — LOCALE & TIMEZONE (ensure correct via localectl)
+# SECTION 8 — LOCALE & TIMEZONE (ensure correct via localectl)
 # These were set in chroot but we confirm them here via localectl/timedatectl
 # which write to the live system config and persist across reboots.
 # =============================================================================
@@ -206,7 +218,7 @@ sudo timedatectl set-timezone "$TIMEZONE"
 success "Timezone confirmed: $TIMEZONE"
 
 # =============================================================================
-# SECTION 8 — SERVICES
+# SECTION 9 — SERVICES
 # Most services were enabled in chroot. We ensure them here and add
 # the per-user pipewire services which can only run in a user session.
 # =============================================================================
@@ -232,7 +244,7 @@ fi
 success "All services enabled"
 
 # =============================================================================
-# SECTION 9 — SSH SETUP
+# SECTION 10 — SSH SETUP
 # This is the last step intentionally.
 #
 # Everything above used HTTPS so no key was needed. Now that you have a
