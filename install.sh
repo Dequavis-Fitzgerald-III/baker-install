@@ -161,8 +161,8 @@ if [[ "$EQUAL_PASSWORDS" =~ ^[Yy]$ ]]; then
     echo ""
     [[ "$SYSTEM_PASSWORD" != "$SYSTEM_PASSWORD2" ]] && error "Root passwords do not match."
     success "SYSTEM password confirmed"
-    ROOT_PASSWORD = $SYSTEM_PASSWORD
-    USER_PASSWORD = $SYSTEM_PASSWORD
+    ROOT_PASSWORD=$SYSTEM_PASSWORD
+    USER_PASSWORD=$SYSTEM_PASSWORD
 else
     read -rsp "Root password: " ROOT_PASSWORD
     echo ""
