@@ -148,35 +148,44 @@ if [[ "$LUKS_INPUT" =~ ^[Yy]$ ]]; then
     echo ""
     [[ "$LUKS_PASS" != "$LUKS_PASS2" ]] && error "Passphrases do not match."
     success "LUKS passphrase confirmed"
+
+    read -rp "Use LUKS passphrase as system password? [y/N]: " LUKS_REUSE
+    if [[ "$LUKS_REUSE" =~ ^[Yy]$ ]]; then
+        ROOT_PASSWORD="$LUKS_PASS"
+        USER_PASSWORD="$LUKS_PASS"
+        success "Using LUKS passphrase as system password"
+    fi
 fi
 
 # --- Passwords ---
-echo ""
-echo "PASSWORDS:"
-read -rp "Set system passwords the same? [y/N]: " EQUAL_PASSWORDS
-if [[ "$EQUAL_PASSWORDS" =~ ^[Yy]$ ]]; then
-    read -rsp "System password: " SYSTEM_PASSWORD
+if [[ "${LUKS_REUSE:-n}" != "y" && "${LUKS_REUSE:-n}" != "Y" ]]; then
     echo ""
-    read -rsp "Confirm System password: " SYSTEM_PASSWORD2
-    echo ""
-    [[ "$SYSTEM_PASSWORD" != "$SYSTEM_PASSWORD2" ]] && error "Root passwords do not match."
-    success "SYSTEM password confirmed"
-    ROOT_PASSWORD=$SYSTEM_PASSWORD
-    USER_PASSWORD=$SYSTEM_PASSWORD
-else
-    read -rsp "Root password: " ROOT_PASSWORD
-    echo ""
-    read -rsp "Confirm root password: " ROOT_PASSWORD2
-    echo ""
-    [[ "$ROOT_PASSWORD" != "$ROOT_PASSWORD2" ]] && error "Root passwords do not match."
-    success "Root password confirmed"
-    
-    read -rsp "Password for $USERNAME: " USER_PASSWORD
-    echo ""
-    read -rsp "Confirm password for $USERNAME: " USER_PASSWORD2
-    echo ""
-    [[ "$USER_PASSWORD" != "$USER_PASSWORD2" ]] && error "User passwords do not match."
-    success "$USERNAME password confirmed"
+    echo "PASSWORDS:"
+    read -rp "Set system passwords the same? [y/N]: " EQUAL_PASSWORDS
+    if [[ "$EQUAL_PASSWORDS" =~ ^[Yy]$ ]]; then
+        read -rsp "System password: " SYSTEM_PASSWORD
+        echo ""
+        read -rsp "Confirm System password: " SYSTEM_PASSWORD2
+        echo ""
+        [[ "$SYSTEM_PASSWORD" != "$SYSTEM_PASSWORD2" ]] && error "Root passwords do not match."
+        success "SYSTEM password confirmed"
+        ROOT_PASSWORD=$SYSTEM_PASSWORD
+        USER_PASSWORD=$SYSTEM_PASSWORD
+    else
+        read -rsp "Root password: " ROOT_PASSWORD
+        echo ""
+        read -rsp "Confirm root password: " ROOT_PASSWORD2
+        echo ""
+        [[ "$ROOT_PASSWORD" != "$ROOT_PASSWORD2" ]] && error "Root passwords do not match."
+        success "Root password confirmed"
+        
+        read -rsp "Password for $USERNAME: " USER_PASSWORD
+        echo ""
+        read -rsp "Confirm password for $USERNAME: " USER_PASSWORD2
+        echo ""
+        [[ "$USER_PASSWORD" != "$USER_PASSWORD2" ]] && error "User passwords do not match."
+        success "$USERNAME password confirmed"
+    fi
 fi
 
 # --- Dotfiles ---
