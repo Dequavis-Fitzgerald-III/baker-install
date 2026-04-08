@@ -540,13 +540,18 @@ success "Chroot configuration done"
 # =============================================================================
 section "Setting up post-install script"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$SCRIPT_DIR/post-install.sh" ]]; then
-    cp "$SCRIPT_DIR/post-install.sh" /mnt/home/"$USERNAME"/
-    chmod +x /mnt/home/"$USERNAME"/post-install.sh
-    # Write config for post-install to read. No HOSTNAME here — post-install
-    # reads it from the live system with $(hostname).
-    cat > /mnt/home/"$USERNAME"/.install-config <<INSTALLCONF
+REPO_RAW="https://raw.githubusercontent.com/Dequavis-Fitzgerald-III/baker-install/main"
+
+info "Downloading post-install.sh and post-reboot.sh from repo..."
+curl -fsSL "$REPO_RAW/post-install.sh" -o /mnt/home/"$USERNAME"/post-install.sh \
+    || error "Failed to download post-install.sh"
+curl -fsSL "$REPO_RAW/post-reboot.sh" -o /mnt/home/"$USERNAME"/post-reboot.sh \
+    || error "Failed to download post-reboot.sh"
+chmod +x /mnt/home/"$USERNAME"/post-install.sh
+chmod +x /mnt/home/"$USERNAME"/post-reboot.sh
+success "post-install.sh and post-reboot.sh downloaded to /home/$USERNAME/"
+
+cat > /mnt/home/"$USERNAME"/.install-config <<INSTALLCONF
 USERNAME=$USERNAME
 PROFILE=$PROFILE
 DOTFILES_URL=$DOTFILES_URL
@@ -554,11 +559,9 @@ TIMEZONE=$TIMEZONE
 $([ "$PROFILE" == "laptop" ] && [ -n "$WIFI_SSID" ] && echo "WIFI_SSID=$WIFI_SSID" || true)
 $([ "$PROFILE" == "laptop" ] && [ -n "$WIFI_SSID" ] && echo "WIFI_PASSWORD=$WIFI_PASSWORD" || true)
 INSTALLCONF
-    success "post-install.sh copied to /home/$USERNAME/"
-    info "After first boot, run: bash ~/post-install.sh"
-else
-    warn "post-install.sh not found next to install.sh — copy it manually."
-fi
+success ".install-config written"
+info "After first boot, run: bash ~/post-install.sh"
+info "After post-install reboots, run: bash ~/post-reboot.sh"
 
 # =============================================================================
 # DONE
