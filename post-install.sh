@@ -48,11 +48,13 @@ else
     warn "No internet detected."
     if [[ "$PROFILE" == "laptop" ]]; then
         info "Attempting wifi connection via NetworkManager..."
-        read -rp "SSID (wifi network name): " WIFI_SSID
-        read -rsp "Wifi password: " WIFI_PASSWORD
-        echo ""
-        # nmcli is the NetworkManager command line tool.
-        # 'device wifi connect' connects to an SSID with a password.
+        if [[ -n "$WIFI_SSID" && -n "$WIFI_PASSWORD" ]]; then
+            info "Using saved wifi credentials from .install-config..."
+        else
+            read -rp "SSID (wifi network name): " WIFI_SSID
+            read -rsp "Wifi password: " WIFI_PASSWORD
+            echo ""
+        fi
         nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASSWORD" \
             || error "Failed to connect. Check SSID and password."
         sleep 3
