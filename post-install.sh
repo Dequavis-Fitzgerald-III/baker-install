@@ -303,6 +303,10 @@ fi
 git config --global url."git@github.com:".insteadOf "https://github.com/"
 success "Git configured to use SSH for all GitHub interactions"
 
+git config --global user.name "clarkehines"
+git config --global user.email "clarkehinesy@gmail.com"
+success "Git identity set"
+
 # Update the remote URLs on the repos we already cloned over HTTPS,
 # so push/pull on those repos also goes through SSH going forward.
 git -C "$HOME/projects/dotfiles" remote set-url origin "git@github.com:${DOTFILES_URL#https://github.com/}"
