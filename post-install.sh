@@ -303,8 +303,8 @@ fi
 git config --global url."git@github.com:".insteadOf "https://github.com/"
 success "Git configured to use SSH for all GitHub interactions"
 
-git config --global user.name "clarkehines"
-git config --global user.email "clarkehinesy@gmail.com"
+git config --global user.name "Dequavis-Fitzgerald-III"
+git config --global user.email "c5036513@newcastle.ac.uk"
 success "Git identity set"
 
 # Update the remote URLs on the repos we already cloned over HTTPS,
