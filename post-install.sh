@@ -324,25 +324,13 @@ success "Remote URLs updated to SSH on existing repos"
 # DONE
 # =============================================================================
 section "Post-install complete!"
+success "All done. Rebooting in 10 seconds — run post-reboot.sh after login."
 echo ""
-echo "============================================================"
-echo "  Things to do manually:"
-echo "============================================================"
-echo "  1. Reboot:                         sudo reboot"
-echo "  2. Log in to NordVPN:              nordvpn login"
-echo "  3. Set NordVPN autoconnect:        nordvpn set autoconnect enabled us"
-echo "  4. Set Chrome download location:   Settings → Downloads → ~/downloads"
-echo "  5. Set PyCharm projects location:  Toolbox → Settings → ~/projects"
-echo "  6. Set PyCharm venv location:      Settings → Tools → Python Integrated Tools → ~/.venvs"
+for i in {10..1}; do
+    echo -ne "\r  Rebooting in ${i}s... (Ctrl+C to cancel)"
+    sleep 1
+done
 echo ""
-if [[ "$PROFILE" == "laptop" ]]; then
-    echo "  See TEMP_JARVIS_DEV_SETUP.md in ~/projects/baker-install"
-    echo "  if you need to set up the Jarvis dev environment."
-    echo ""
-fi
-echo "Enjoy your fresh Arch install!"
-echo ""
-
-# Self-delete — remove this script and .install-config from the home directory now it's done.
 rm -f "$HOME/.install-config"
 rm -- "$0"
+sudo reboot
