@@ -98,6 +98,40 @@ read -rp "Dual boot with Windows? [y/N]: " DUAL_BOOT_INPUT
 DUAL_BOOT=false
 [[ "$DUAL_BOOT_INPUT" =~ ^[Yy]$ ]] && DUAL_BOOT=true
 
+# DUAL_FRESH: only relevant when DUAL_BOOT=true.
+#   true  — wipe the whole disk; both Windows and Linux start from scratch.
+#   false — Windows already exists; only the Linux partition is wiped and recreated.
+DUAL_FRESH=false
+DUAL_EFI_PART=""
+OLD_LINUX_PART=""
+
+if [[ "$DUAL_BOOT" == true ]]; then
+    echo ""
+    echo "  fresh — wipe the whole disk (Windows gone, reinstall later)"
+    echo "  keep  — Windows already installed; preserve it"
+    read -rp "Fresh install or keep existing Windows? [fresh/keep]: " DUAL_MODE
+    case "$DUAL_MODE" in
+        fresh|FRESH) DUAL_FRESH=true ;;
+        keep|KEEP)   DUAL_FRESH=false ;;
+        *) error "Enter 'fresh' or 'keep'." ;;
+    esac
+
+    if [[ "$DUAL_FRESH" == false ]]; then
+        echo ""
+        echo "Current layout of $DISK:"
+        parted "$DISK" print
+        echo ""
+        read -rp "Windows EFI partition to reuse (e.g. ${DISK}p2): " DUAL_EFI_PART
+        [[ ! -b "$DUAL_EFI_PART" ]] && error "Partition $DUAL_EFI_PART not found."
+        success "Will reuse existing EFI: $DUAL_EFI_PART"
+        read -rp "Existing Linux root partition to wipe (leave blank if none): " OLD_LINUX_PART
+        if [[ -n "$OLD_LINUX_PART" ]]; then
+            [[ ! -b "$OLD_LINUX_PART" ]] && error "Partition $OLD_LINUX_PART not found."
+            warn "Will delete $OLD_LINUX_PART and recreate it for Arch"
+        fi
+    fi
+fi
+
 # Set EFI mount point based on dual boot.
 # CRITICAL: For dual boot we mount EFI at /boot/efi so we don't overwrite
 # the Windows bootloader. For single boot we mount at /boot directly.
@@ -226,6 +260,15 @@ echo "  Hostname:   $HOSTNAME"
 echo "  Username:   $USERNAME"
 echo "  Disk:       $DISK"
 echo "  Dual boot:  $DUAL_BOOT"
+if [[ "$DUAL_BOOT" == true ]]; then
+    if [[ "$DUAL_FRESH" == true ]]; then
+        echo "  Dual mode:  fresh (full wipe)"
+    else
+        echo "  Dual mode:  keep Windows"
+        echo "  Windows EFI: $DUAL_EFI_PART"
+        [[ -n "$OLD_LINUX_PART" ]] && echo "  Linux part to wipe: $OLD_LINUX_PART"
+    fi
+fi
 echo "  EFI mount:  $EFI_MOUNT"
 echo "  CPU:        $CPU ($UCODE)"
 echo "  Timezone:   $TIMEZONE"
@@ -246,30 +289,58 @@ success "Confirmed, beginning install."
 # =============================================================================
 section "Partitioning $DISK"
 
-# Wipe any existing partition table and create a fresh GPT.
-# GPT is required for UEFI systems. MBR is legacy, don't use it.
-parted -s "$DISK" mklabel gpt
-success "GPT created"
+if [[ "$DUAL_BOOT" == true && "$DUAL_FRESH" == false ]]; then
+    # Keep Windows: never touch the partition table or Windows partitions.
+    # Delete the old Linux root if given, then create a new one in the free space.
 
-# EFI partition — 512MB is plenty for the bootloader and kernel files.
-# We start at 1MiB to align to sector boundaries (avoids performance issues).
-parted -s "$DISK" mkpart ESP fat32 1MiB 513MiB
-parted -s "$DISK" set 1 esp on  # Mark as EFI System Partition
-success "EFI partition created"
+    if [[ -n "$OLD_LINUX_PART" ]]; then
+        PART_NUM=$(echo "$OLD_LINUX_PART" | grep -o '[0-9]*$')
+        parted -s "$DISK" rm "$PART_NUM"
+        success "Deleted old Linux partition $OLD_LINUX_PART"
+        partprobe "$DISK"
+    fi
 
-# Root partition — everything from 513MiB to end of disk.
-parted -s "$DISK" mkpart primary ext4 513MiB 100%
-success "Root partition created"
+    # Find the start of the largest free space block on the disk.
+    FREE_START=$(parted -s "$DISK" unit MiB print free \
+        | awk '/Free Space/ {
+            start=$1; gsub(/MiB/,"",start)
+            size=$3;  gsub(/MiB/,"",size)
+            if (size+0 > max+0) { max=size+0; best=start }
+          } END { print best }')
+    [[ -z "$FREE_START" ]] && error "No free space found on $DISK."
+    info "Creating root partition from ${FREE_START}MiB to end of disk"
 
-# Figure out partition names — nvme disks use p1/p2, sata/mmc disks use 1/2.
-# e.g. /dev/nvme0n1 → /dev/nvme0n1p1 and /dev/nvme0n1p2
-# e.g. /dev/sda     → /dev/sda1     and /dev/sda2
-if [[ "$DISK" == *"nvme"* ]] || [[ "$DISK" == *"mmcblk"* ]]; then
-    EFI_PART="${DISK}p1"
-    ROOT_PART="${DISK}p2"
+    parted -s "$DISK" mkpart primary ext4 "${FREE_START}MiB" 100%
+    partprobe "$DISK"
+    success "Root partition created"
+
+    ROOT_PART_NUM=$(parted -s "$DISK" print | awk '/^ [0-9]/ {last=$1} END {print last}')
+    EFI_PART="$DUAL_EFI_PART"
+    if [[ "$DISK" == *"nvme"* ]] || [[ "$DISK" == *"mmcblk"* ]]; then
+        ROOT_PART="${DISK}p${ROOT_PART_NUM}"
+    else
+        ROOT_PART="${DISK}${ROOT_PART_NUM}"
+    fi
+
 else
-    EFI_PART="${DISK}1"
-    ROOT_PART="${DISK}2"
+    # Fresh install (single boot or dual boot clean slate): wipe and start over.
+    parted -s "$DISK" mklabel gpt
+    success "GPT created"
+
+    parted -s "$DISK" mkpart ESP fat32 1MiB 513MiB
+    parted -s "$DISK" set 1 esp on
+    success "EFI partition created"
+
+    parted -s "$DISK" mkpart primary ext4 513MiB 100%
+    success "Root partition created"
+
+    if [[ "$DISK" == *"nvme"* ]] || [[ "$DISK" == *"mmcblk"* ]]; then
+        EFI_PART="${DISK}p1"
+        ROOT_PART="${DISK}p2"
+    else
+        EFI_PART="${DISK}1"
+        ROOT_PART="${DISK}2"
+    fi
 fi
 
 # =============================================================================
@@ -301,9 +372,14 @@ fi
 # =============================================================================
 section "Formatting partitions"
 
-# Format EFI as FAT32. -F 32 specifies FAT32 (not FAT16).
-mkfs.fat -F 32 "$EFI_PART"
-success "EFI formatted as FAT32"
+# Format EFI as FAT32 only on a fresh install.
+# When keeping Windows the EFI already exists — formatting it wipes the Windows bootloader.
+if [[ "$DUAL_BOOT" == true && "$DUAL_FRESH" == false ]]; then
+    info "Dual boot (keep Windows): skipping EFI format — reusing existing ESP"
+else
+    mkfs.fat -F 32 "$EFI_PART"
+    success "EFI formatted as FAT32"
+fi
 
 # Format root as ext4. -L sets a label for easy identification.
 mkfs.ext4 -L root "$ROOT_DEVICE"
@@ -511,7 +587,7 @@ echo "mkinitcpio regenerated"
 # --target=x86_64-efi        — install for 64-bit UEFI
 # --efi-directory=$EFI_MOUNT — where the EFI partition is mounted
 # --bootloader-id=GRUB       — name that appears in the UEFI firmware menu
-grub-install --target=x86_64-efi --efi-directory=$EFI_MOUNT --bootloader-id=GRUB
+grub-install --target=x86_64-efi --efi-directory=$EFI_MOUNT --bootloader-id=GRUB --removable
 echo "GRUB installed"
 
 # --- GRUB config: LUKS ---
