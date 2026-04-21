@@ -2,7 +2,7 @@
 # =============================================================================
 # Baker Machine Key Sync
 # Run this on existing baker machines after a new machine has been installed
-# and its public key pushed to the baker-install repo. Pulls the latest keys
+# and its public key pushed to the baker repo. Pulls the latest keys
 # and rebuilds authorized_keys + ~/.ssh/config from the registry.
 # =============================================================================
 
@@ -20,16 +20,16 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-BAKER_INSTALL_DIR="$HOME/projects/baker-install"
+BAKER_INSTALL_DIR="$HOME/projects/baker"
 KEYS_DIR="$BAKER_INSTALL_DIR/keys"
 SSH_KEY="$HOME/.ssh/id_ed25519"
 CURRENT_HOST="$(cat /etc/hostname)"
 USERNAME="$(whoami)"
 
-[[ -d "$BAKER_INSTALL_DIR/.git" ]] || error "baker-install repo not found at $BAKER_INSTALL_DIR"
+[[ -d "$BAKER_INSTALL_DIR/.git" ]] || error "baker repo not found at $BAKER_INSTALL_DIR"
 
 # Pull latest keys from the repo
-info "Pulling latest keys from baker-install repo..."
+info "Pulling latest keys from baker repo..."
 git -C "$BAKER_INSTALL_DIR" pull
 success "Repo updated"
 

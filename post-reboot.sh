@@ -86,7 +86,7 @@ section "Writing todo checklist"
 
 cat > "$HOME/.todo" <<TODO
   [ ] Set Chrome download location: Settings → Downloads → ~/downloads
-  [ ] On any other baker machines already installed: bash ~/projects/baker-install/sync-baker-keys.sh
+  [ ] On any other baker machines already installed: bash ~/projects/baker/sync-baker-keys.sh
   [ ] Clear this list: rm ~/.todo
 TODO
 success "Todo checklist written to ~/.todo"

@@ -794,7 +794,7 @@ success "Chroot configuration done"
 # =============================================================================
 section "Setting up post-install script"
 
-REPO_RAW="https://raw.githubusercontent.com/Dequavis-Fitzgerald-III/baker-install/main"
+REPO_RAW="https://raw.githubusercontent.com/Dequavis-Fitzgerald-III/baker/main"
 
 info "Downloading post-install.sh and post-reboot.sh from repo..."
 curl -fsSL "$REPO_RAW/post-install.sh" -o /mnt/home/"$USERNAME"/post-install.sh \

@@ -154,14 +154,14 @@ mkdir -p "$HOME/projects"
 mkdir -p "$HOME/.venvs"
 success "Home directories created"
 
-# Clone baker-install (over HTTPS — no SSH key needed)
-BAKER_INSTALL_DIR="$HOME/projects/baker-install"
+# Clone baker (over HTTPS — no SSH key needed)
+BAKER_INSTALL_DIR="$HOME/projects/baker"
 if [[ -d "$BAKER_INSTALL_DIR/.git" ]]; then
-    warn "baker-install already exists, pulling latest..."
+    warn "baker already exists, pulling latest..."
     git -C "$BAKER_INSTALL_DIR" pull
 else
-    git clone https://github.com/Dequavis-Fitzgerald-III/baker-install.git "$BAKER_INSTALL_DIR"
-    success "baker-install cloned to $BAKER_INSTALL_DIR"
+    git clone https://github.com/Dequavis-Fitzgerald-III/baker.git "$BAKER_INSTALL_DIR"
+    success "baker cloned to $BAKER_INSTALL_DIR"
 fi
 
 # Clone dotfiles (over HTTPS — no SSH key needed)
@@ -274,7 +274,7 @@ success "All services enabled"
 #   1. Generate keypair
 #   2. Add to GitHub (needed for git push below)
 #   3. Configure git to use SSH
-#   4. Register this machine's public key in baker-install/keys/
+#   4. Register this machine's public key in baker/keys/
 #   5. Rebuild authorized_keys + ~/.ssh/config from all keys in that
 #      registry — machine list is derived from filenames, not hardcoded
 #   6. Commit + push the new key so future installs pick it up
@@ -282,7 +282,7 @@ success "All services enabled"
 section "SSH Setup"
 
 SSH_KEY="$HOME/.ssh/id_ed25519"
-BAKER_INSTALL_DIR="$HOME/projects/baker-install"
+BAKER_INSTALL_DIR="$HOME/projects/baker"
 KEYS_DIR="$BAKER_INSTALL_DIR/keys"
 CURRENT_HOST="$(cat /etc/hostname)"
 
@@ -336,11 +336,11 @@ success "Git identity set"
 # Update the remote URLs on the repos we already cloned over HTTPS,
 # so push/pull on those repos also goes through SSH going forward.
 git -C "$HOME/projects/dotfiles" remote set-url origin "git@github.com:${DOTFILES_URL#https://github.com/}"
-git -C "$BAKER_INSTALL_DIR" remote set-url origin "git@github.com:Dequavis-Fitzgerald-III/baker-install.git"
+git -C "$BAKER_INSTALL_DIR" remote set-url origin "git@github.com:Dequavis-Fitzgerald-III/baker.git"
 success "Remote URLs updated to SSH on existing repos"
 
 # --- Baker machine key distribution ---
-# keys/ in the baker-install repo is the registry of all baker machine public
+# keys/ in the baker repo is the registry of all baker machine public
 # keys. Each install adds its own key then rebuilds authorized_keys and
 # ~/.ssh/config from whatever keys are present — so the machine list is
 # derived from the repo, not hardcoded anywhere.
@@ -349,7 +349,7 @@ chmod 700 "$HOME/.ssh"
 
 # Register this machine's key
 cp "$SSH_KEY.pub" "$KEYS_DIR/${CURRENT_HOST}.pub"
-success "Registered public key in baker-install/keys/${CURRENT_HOST}.pub"
+success "Registered public key in baker/keys/${CURRENT_HOST}.pub"
 
 # Rebuild authorized_keys from all keys in the registry
 AUTH_KEYS="$HOME/.ssh/authorized_keys"
@@ -402,7 +402,7 @@ if git -C "$BAKER_INSTALL_DIR" diff --cached --quiet; then
 else
     git -C "$BAKER_INSTALL_DIR" commit -m "keys: add ${CURRENT_HOST} public key"
     git -C "$BAKER_INSTALL_DIR" push
-    success "Public key pushed to baker-install repo — other machines can now sync"
+    success "Public key pushed to baker repo — other machines can now sync"
 fi
 
 # =============================================================================
