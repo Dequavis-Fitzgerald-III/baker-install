@@ -269,10 +269,22 @@ success "All services enabled"
 # After the key is on GitHub we set a git URL rewrite rule so all future
 # git operations automatically use SSH instead of HTTPS. You won't need
 # to change any remote URLs manually.
+#
+# Flow:
+#   1. Generate keypair
+#   2. Add to GitHub (needed for git push below)
+#   3. Configure git to use SSH
+#   4. Register this machine's public key in baker-install/keys/
+#   5. Rebuild authorized_keys + ~/.ssh/config from all keys in that
+#      registry — machine list is derived from filenames, not hardcoded
+#   6. Commit + push the new key so future installs pick it up
 # =============================================================================
 section "SSH Setup"
 
 SSH_KEY="$HOME/.ssh/id_ed25519"
+BAKER_INSTALL_DIR="$HOME/projects/baker-install"
+KEYS_DIR="$BAKER_INSTALL_DIR/keys"
+CURRENT_HOST="$(hostname)"
 
 if [[ -f "$SSH_KEY" ]]; then
     warn "SSH key already exists at $SSH_KEY, skipping generation"
@@ -324,8 +336,74 @@ success "Git identity set"
 # Update the remote URLs on the repos we already cloned over HTTPS,
 # so push/pull on those repos also goes through SSH going forward.
 git -C "$HOME/projects/dotfiles" remote set-url origin "git@github.com:${DOTFILES_URL#https://github.com/}"
-git -C "$HOME/projects/baker-install" remote set-url origin "git@github.com:Dequavis-Fitzgerald-III/baker-install.git"
+git -C "$BAKER_INSTALL_DIR" remote set-url origin "git@github.com:Dequavis-Fitzgerald-III/baker-install.git"
 success "Remote URLs updated to SSH on existing repos"
+
+# --- Baker machine key distribution ---
+# keys/ in the baker-install repo is the registry of all baker machine public
+# keys. Each install adds its own key then rebuilds authorized_keys and
+# ~/.ssh/config from whatever keys are present — so the machine list is
+# derived from the repo, not hardcoded anywhere.
+mkdir -p "$KEYS_DIR"
+chmod 700 "$HOME/.ssh"
+
+# Register this machine's key
+cp "$SSH_KEY.pub" "$KEYS_DIR/${CURRENT_HOST}.pub"
+success "Registered public key in baker-install/keys/${CURRENT_HOST}.pub"
+
+# Rebuild authorized_keys from all keys in the registry
+AUTH_KEYS="$HOME/.ssh/authorized_keys"
+touch "$AUTH_KEYS"
+chmod 600 "$AUTH_KEYS"
+
+for pubkey_file in "$KEYS_DIR"/*.pub; do
+    [[ -f "$pubkey_file" ]] || continue
+    key_content="$(cat "$pubkey_file")"
+    if ! grep -qxF "$key_content" "$AUTH_KEYS" 2>/dev/null; then
+        echo "$key_content" >> "$AUTH_KEYS"
+        success "Authorized: $(basename "$pubkey_file" .pub)"
+    fi
+done
+
+# Rebuild ~/.ssh/config baker machine block.
+# Entries are derived from registry filenames — no hardcoded hostnames.
+# Tailscale MagicDNS short names mean the hostname alone resolves on the tailnet.
+SSH_CONFIG="$HOME/.ssh/config"
+touch "$SSH_CONFIG"
+chmod 600 "$SSH_CONFIG"
+
+MARKER_START="# BEGIN baker machines"
+MARKER_END="# END baker machines"
+
+if grep -q "$MARKER_START" "$SSH_CONFIG" 2>/dev/null; then
+    sed -i "/$MARKER_START/,/$MARKER_END/d" "$SSH_CONFIG"
+fi
+
+{
+    echo ""
+    echo "$MARKER_START"
+    for pubkey_file in "$KEYS_DIR"/*.pub; do
+        [[ -f "$pubkey_file" ]] || continue
+        machine="$(basename "$pubkey_file" .pub)"
+        [[ "$machine" == "$CURRENT_HOST" ]] && continue
+        printf '\nHost %s\n    Hostname %s\n    User %s\n    IdentityFile %s\n' \
+            "$machine" "$machine" "$USERNAME" "$SSH_KEY"
+    done
+    echo ""
+    echo "$MARKER_END"
+} >> "$SSH_CONFIG"
+
+success "~/.ssh/config updated with baker machine entries"
+
+# Commit and push this machine's public key so future installs pick it up
+git -C "$BAKER_INSTALL_DIR" add "keys/${CURRENT_HOST}.pub"
+if git -C "$BAKER_INSTALL_DIR" diff --cached --quiet; then
+    warn "Key already committed in repo, skipping"
+else
+    git -C "$BAKER_INSTALL_DIR" commit -m "keys: add ${CURRENT_HOST} public key"
+    git -C "$BAKER_INSTALL_DIR" push
+    success "Public key pushed to baker-install repo — other machines can now sync"
+fi
 
 # =============================================================================
 # DONE

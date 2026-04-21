@@ -762,6 +762,7 @@ echo "GRUB config generated"
 systemctl enable NetworkManager
 systemctl enable sddm
 systemctl enable ufw
+systemctl enable sshd
 
 if [[ "$PROFILE" == "laptop" ]]; then
     systemctl enable tlp
@@ -769,6 +770,16 @@ if [[ "$PROFILE" == "laptop" ]]; then
 fi
 
 echo "Services enabled"
+
+# --- SSH daemon hardening ---
+# Drop-in so we don't clobber the stock sshd_config.
+# Key-only auth from first boot — no password auth ever exposed.
+mkdir -p /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/99-baker.conf <<SSHDCONF
+PasswordAuthentication no
+PubkeyAuthentication yes
+SSHDCONF
+echo "sshd hardened (key-only auth)"
 echo ""
 echo "Chroot configuration complete."
 EOF
