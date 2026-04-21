@@ -29,7 +29,7 @@ section() { echo -e "\n${BOLD}=== $1 ===${NC}\n"; }
 # =============================================================================
 # SECTION 1 — INTERACTIVE QUESTIONS
 # We ask everything upfront so the install can run unattended after this point.
-# Order: profile → hostname → username → cpu → timezone → wifi (laptop only)
+# Order: profile → hostname → username → cpu → gpu → timezone → wifi (laptop only)
 #        → disk → dual boot → hdd (workstation only) → luks → passwords → dotfiles
 # =============================================================================
 section "Welcome to the Arch Installer"
@@ -74,6 +74,23 @@ case "$CPU_INPUT" in
     *) error "Invalid CPU selection." ;;
 esac
 success "CPU: $CPU ($UCODE)"
+
+# --- GPU ---
+echo ""
+echo "Select GPU brand:"
+echo "  1) Nvidia  — will install nvidia, nvidia-utils, nvidia-settings"
+echo "  2) AMD     — will install mesa, vulkan-radeon, libva-mesa-driver"
+echo "  3) Intel   — will install mesa, vulkan-intel, intel-media-driver"
+echo "  4) None    — skip GPU drivers"
+read -rp "GPU [1-4]: " GPU_INPUT
+case "$GPU_INPUT" in
+    1) GPU="nvidia" ;;
+    2) GPU="amd"    ;;
+    3) GPU="intel"  ;;
+    4) GPU="none"   ;;
+    *) error "Invalid GPU selection." ;;
+esac
+success "GPU: $GPU"
 
 # --- Timezone ---
 echo ""
@@ -305,6 +322,7 @@ echo "  Profile:    $PROFILE"
 echo "  Hostname:   $HOSTNAME"
 echo "  Username:   $USERNAME"
 echo "  CPU:        $CPU ($UCODE)"
+echo "  GPU:        $GPU"
 echo "  Timezone:   $TIMEZONE"
 echo "  Disk:       $DISK"
 echo "  Dual boot:  $DUAL_BOOT"
@@ -524,6 +542,24 @@ if [[ "$PROFILE" == "laptop" ]]; then
     PACKAGES+=(tlp brightnessctl bluez bluez-utils)
 fi
 
+# GPU drivers
+if [[ "$GPU" == "nvidia" ]]; then
+    # nvidia          — proprietary kernel module
+    # nvidia-utils    — userspace utilities and OpenGL
+    # nvidia-settings — GUI control panel
+    PACKAGES+=(nvidia nvidia-utils nvidia-settings)
+elif [[ "$GPU" == "amd" ]]; then
+    # mesa              — open source OpenGL/Vulkan implementation
+    # vulkan-radeon     — Vulkan support for AMD
+    # libva-mesa-driver — hardware video acceleration
+    PACKAGES+=(mesa vulkan-radeon libva-mesa-driver)
+elif [[ "$GPU" == "intel" ]]; then
+    # mesa               — open source OpenGL/Vulkan implementation
+    # vulkan-intel       — Vulkan support for Intel
+    # intel-media-driver — hardware video acceleration (Gen8+)
+    PACKAGES+=(mesa vulkan-intel intel-media-driver)
+fi
+
 pacstrap /mnt "${PACKAGES[@]}"
 success "Base system installed"
 
@@ -641,11 +677,23 @@ echo "hyprland-welcome removed (or was not present)"
 #   encrypt    — unlocks the LUKS partition (only added if LUKS is enabled)
 #   filesystems — mounts filesystems
 #   fsck       — checks filesystem integrity at boot
+#
+# CRITICAL: kms is intentionally EXCLUDED when using the Nvidia proprietary driver.
+# kms loads kernel mode setting early which conflicts with the nvidia module and
+# causes a black screen on boot. AMD and Intel open source drivers work fine with kms.
 if [[ "$LUKS" == true ]]; then
-    sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap block encrypt filesystems fsck)/' /etc/mkinitcpio.conf
+    if [[ "$GPU" == "nvidia" ]]; then
+        sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf keyboard keymap block encrypt filesystems fsck)/' /etc/mkinitcpio.conf
+    else
+        sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap block encrypt filesystems fsck)/' /etc/mkinitcpio.conf
+    fi
     echo "mkinitcpio HOOKS updated for LUKS"
 else
-    sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap block filesystems fsck)/' /etc/mkinitcpio.conf
+    if [[ "$GPU" == "nvidia" ]]; then
+        sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf keyboard keymap block filesystems fsck)/' /etc/mkinitcpio.conf
+    else
+        sed -i 's/^HOOKS=.*$/HOOKS=(base udev autodetect microcode modconf kms keyboard keymap block filesystems fsck)/' /etc/mkinitcpio.conf
+    fi
     echo "mkinitcpio HOOKS updated"
 fi
 
@@ -660,20 +708,31 @@ echo "mkinitcpio regenerated"
 grub-install --target=x86_64-efi --efi-directory=$EFI_MOUNT --bootloader-id=GRUB --removable
 echo "GRUB installed"
 
-# --- GRUB config: LUKS ---
-# We need to tell GRUB the UUID of the encrypted partition so it can pass
-# the right cryptdevice parameter to the kernel at boot.
+# --- GRUB config: kernel cmdline ---
+# We build the kernel cmdline by composing params so LUKS and GPU settings
+# combine cleanly without fragile sed chaining.
 #
 # We replace the existing GRUB_CMDLINE_LINUX line directly rather than
 # appending a new line and trying to delete the old one. Append + delete
 # is fragile — if the delete sed doesn't match, you end up with two lines
 # and subtle boot failures.
+GRUB_CMDLINE=""
+
 if [[ "$LUKS" == true ]]; then
     # blkid gets the UUID of the raw encrypted partition (not the mapper device).
     ROOT_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
-    sed -i "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=\${ROOT_UUID}:cryptroot root=/dev/mapper/cryptroot\"|" /etc/default/grub
-    echo "GRUB configured for LUKS (UUID: \$ROOT_UUID)"
+    GRUB_CMDLINE="cryptdevice=UUID=\${ROOT_UUID}:cryptroot root=/dev/mapper/cryptroot"
+    echo "GRUB LUKS params set (UUID: \$ROOT_UUID)"
 fi
+
+if [[ "$GPU" == "nvidia" ]]; then
+    # nvidia_drm.modeset=1 — enables DRM kernel mode setting for the Nvidia driver.
+    # Required for Wayland compositors (including Hyprland) to work with Nvidia.
+    GRUB_CMDLINE="\${GRUB_CMDLINE:+\$GRUB_CMDLINE }nvidia_drm.modeset=1"
+    echo "GRUB Nvidia DRM modeset param set"
+fi
+
+sed -i "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"\$GRUB_CMDLINE\"|" /etc/default/grub
 
 # --- GRUB config: dual boot ---
 # os-prober is disabled by default in /etc/default/grub. Enable it so
@@ -736,6 +795,7 @@ USERNAME=$USERNAME
 PROFILE=$PROFILE
 DOTFILES_URL=$DOTFILES_URL
 TIMEZONE=$TIMEZONE
+GPU=$GPU
 INSTALLCONF
 
 if [[ "$PROFILE" == "laptop" && -n "$WIFI_SSID" ]]; then
