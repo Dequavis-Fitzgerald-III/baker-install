@@ -110,10 +110,20 @@ Run on existing machines when a new machine joins. Pulls the repo and rebuilds `
 - **ringbaker** — home server not yet built. When it joins the fleet it will need its own profile in `install.sh` (server profile: no desktop packages, no NordVPN — Tailscale-only).
 - **`TEMP_JARVIS_DEV_SETUP.md`** — temporary file for Jarvis AI project dev environment setup on nomadbaker. Delete when Jarvis moves to the server.
 
+## Network DNS Notes
+
+Some networks (confirmed: Newcastle University) block Tailscale's domains (`login.tailscale.com`, `controlplane.tailscale.com`) at the DNS level. Symptoms:
+- `tailscale up` browser auth page fails to load (`ERR_NAME_NOT_RESOLVED`)
+- Tailscale health warning: "hasn't received a network map from the coordination server"
+- Chicken-and-egg on machines already using Tailscale MagicDNS (`100.100.100.100`) as their DNS — Tailscale DNS goes down when Tailscale loses the control server
+
+`post-reboot.sh` handles this automatically by testing DNS resolution before `tailscale up` and overriding to `8.8.8.8` if needed. On an existing machine, manual fix: `echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf && sudo systemctl restart tailscaled`.
+
 ---
 
 ## Conventions
 
+- Explain everything: before running any command or making any change, explain what it does in plain terms. Never assume prior knowledge of a tool, flag, or concept.
 - One section at a time: explain the change, then write it, so each step can be reviewed before continuing.
 - No co-author lines in git commits.
 - Commit messages: conventional commits style (`feat:`, `fix:`, `refactor:` etc.).

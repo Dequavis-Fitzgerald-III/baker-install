@@ -24,14 +24,32 @@ section() { echo -e "\n${BOLD}=== $1 ===${NC}\n"; }
 # Tailscale must be authenticated before NordVPN connects — NordLynx
 # (WireGuard) captures the default route and can break the Tailscale
 # browser auth flow if it runs first.
+# Some networks (e.g. university networks) block Tailscale's domains at the
+# DNS level. We test resolution before attempting auth and override to 8.8.8.8
+# if needed — NetworkManager will restore the network's DNS on next reconnect.
 # operator is set to the current user so tailscale commands don't need sudo.
 # MagicDNS is on by default and ~/.ssh/config already uses the MagicDNS
 # short names, so SSH across the fleet just works once this is done.
 # =============================================================================
 section "Tailscale Setup"
 
+# Disconnect NordVPN if it's already running — NordLynx capturing the default
+# route before Tailscale auth breaks the browser flow.
+if nordvpn status 2>/dev/null | grep -q "Connected"; then
+    warn "NordVPN is connected — disconnecting before Tailscale auth..."
+    nordvpn disconnect || warn "Failed to disconnect NordVPN — disconnect manually before continuing"
+fi
+
+# Test DNS resolution for Tailscale's login server.
+# If the current DNS can't resolve it, fall back to 8.8.8.8.
+if ! dig +short login.tailscale.com > /dev/null 2>&1; then
+    warn "DNS cannot resolve login.tailscale.com — overriding to 8.8.8.8 temporarily"
+    echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf > /dev/null
+    success "DNS overridden to 8.8.8.8"
+fi
+
 info "Bringing Tailscale up — your browser will open to complete auth..."
-tailscale up || warn "tailscale up failed — run it manually before continuing"
+sudo tailscale up || warn "tailscale up failed — run it manually before continuing"
 
 read -rp "Press ENTER once you have authenticated Tailscale in the browser..."
 
