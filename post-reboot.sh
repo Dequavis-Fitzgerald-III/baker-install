@@ -20,7 +20,26 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 section() { echo -e "\n${BOLD}=== $1 ===${NC}\n"; }
 
 # =============================================================================
-# SECTION 1 — NORDVPN
+# SECTION 1 — TAILSCALE
+# Tailscale must be authenticated before NordVPN connects — NordLynx
+# (WireGuard) captures the default route and can break the Tailscale
+# browser auth flow if it runs first.
+# operator is set to the current user so tailscale commands don't need sudo.
+# MagicDNS is on by default and ~/.ssh/config already uses the MagicDNS
+# short names, so SSH across the fleet just works once this is done.
+# =============================================================================
+section "Tailscale Setup"
+
+info "Bringing Tailscale up — your browser will open to complete auth..."
+tailscale up || warn "tailscale up failed — run it manually before continuing"
+
+read -rp "Press ENTER once you have authenticated Tailscale in the browser..."
+
+tailscale set --operator="$USER" || warn "Failed to set Tailscale operator — run manually: tailscale set --operator=\$USER"
+success "Tailscale connected — MagicDNS hostnames are now live, no sudo needed for tailscale commands"
+
+# =============================================================================
+# SECTION 2 — NORDVPN
 # Group membership from post-install is active after reboot so nordvpn
 # commands work without any newgrp gymnastics.
 # nordvpn login opens a browser auth flow — we can't automate this.
@@ -40,23 +59,6 @@ read -rp "Press ENTER once you have logged in to NordVPN in the browser..."
 
 nordvpn set autoconnect on us || warn "Failed to set autoconnect — try manually: nordvpn set autoconnect on us"
 success "NordVPN autoconnect (us) enabled"
-
-# =============================================================================
-# SECTION 2 — TAILSCALE
-# tailscale up opens a browser auth flow — same pattern as nordvpn login.
-# operator is set to the current user so tailscale commands don't need sudo.
-# MagicDNS is on by default and ~/.ssh/config already uses the MagicDNS
-# short names, so SSH across the fleet just works once this is done.
-# =============================================================================
-section "Tailscale Setup"
-
-info "Bringing Tailscale up — your browser will open to complete auth..."
-tailscale up || warn "tailscale up failed — run it manually before continuing"
-
-read -rp "Press ENTER once you have authenticated Tailscale in the browser..."
-
-tailscale set --operator="$USER" || warn "Failed to set Tailscale operator — run manually: tailscale set --operator=\$USER"
-success "Tailscale connected — MagicDNS hostnames are now live, no sudo needed for tailscale commands"
 
 # =============================================================================
 # SECTION 3 — BASHRC ADDITIONS
