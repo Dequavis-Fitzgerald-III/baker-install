@@ -64,7 +64,7 @@ Self-deletes on completion, then reboots.
 ### `post-reboot.sh`
 Short final script run after the post-install reboot.
 
-1. NordVPN login (browser flow) + set autoconnect (us) + killswitch + allowlist for Tailscale subnet (`100.64.0.0/10`)
+1. NordVPN login (browser flow) + set autoconnect (us). No killswitch — NordLynx (WireGuard) + Tailscale (WireGuard) conflict at the routing level and the killswitch breaks Tailscale entirely.
 2. Tailscale login (`tailscale up`, browser flow)
 3. `.bashrc` additions: `WORKON_HOME`, todo checklist hook
 4. Writes `~/.todo` with remaining manual steps
