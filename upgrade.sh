@@ -133,7 +133,20 @@ bash "$BAKER_DIR/sync-baker-keys.sh"
 success "SSH config up to date"
 
 # =============================================================================
-# SECTION 8 — SYNC .baker-config
+# SECTION 8 — NORDVPN COUNTRY
+# Re-applies the autoconnect country from NORD_COUNTRY whenever baker-update runs.
+# Only runs if nordvpn is authenticated (status returns Connected or Disconnected).
+# =============================================================================
+section "NordVPN autoconnect country"
+if nordvpn status 2>/dev/null | grep -qE "Status: (Connected|Disconnected)"; then
+    nordvpn set autoconnect on "$NORD_COUNTRY" || warn "Failed to set NordVPN autoconnect — try: nordvpn set autoconnect on $NORD_COUNTRY"
+    success "NordVPN autoconnect: $NORD_COUNTRY"
+else
+    warn "NordVPN not authenticated — skipping. Run: nordvpn set autoconnect on $NORD_COUNTRY"
+fi
+
+# =============================================================================
+# SECTION 10 — SYNC .baker-config
 # Re-detects hardware values from the live system and rewrites .baker-config
 # in canonical format. Editable values are preserved from the current file.
 # =============================================================================
@@ -192,6 +205,8 @@ TIMEZONE=$TIMEZONE
 LOCALE=$LOCALE
 KEYMAP=$KEYMAP
 DOTFILES_URL=$DOTFILES_URL
+GRUB_TIMEOUT=$GRUB_TIMEOUT
+NORD_COUNTRY=$NORD_COUNTRY
 
 # --- Hardware (auto-detected, do not edit) ---
 USERNAME=$USERNAME
@@ -216,7 +231,7 @@ fi
 success ".baker-config synced"
 
 # =============================================================================
-# SECTION 9 — SYSTEM CONFIGURATION
+# SECTION 11 — SYSTEM CONFIGURATION
 # Applies idempotent system config from the freshly synced .baker-config.
 # Only makes changes if something has drifted from the desired state.
 # =============================================================================

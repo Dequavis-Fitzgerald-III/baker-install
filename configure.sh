@@ -158,9 +158,9 @@ if [[ "$CURRENT_CMDLINE" != "$DESIRED_CMDLINE" ]]; then
 fi
 
 CURRENT_TIMEOUT=$(grep "^GRUB_TIMEOUT=" /etc/default/grub)
-if [[ "$CURRENT_TIMEOUT" != "GRUB_TIMEOUT=-1" ]]; then
-    sed -i "s|^GRUB_TIMEOUT=.*|GRUB_TIMEOUT=-1|" /etc/default/grub
-    info "GRUB timeout set to indefinite"
+if [[ "$CURRENT_TIMEOUT" != "GRUB_TIMEOUT=${GRUB_TIMEOUT:--1}" ]]; then
+    sed -i "s|^GRUB_TIMEOUT=.*|GRUB_TIMEOUT=${GRUB_TIMEOUT:--1}|" /etc/default/grub
+    info "GRUB timeout set to: ${GRUB_TIMEOUT:--1}"
     GRUB_CHANGED=true
 fi
 

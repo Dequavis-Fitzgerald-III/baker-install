@@ -19,6 +19,8 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 section() { echo -e "\n${BOLD}=== $1 ===${NC}\n"; }
 
+source "$HOME/.baker-config"
+
 # =============================================================================
 # SECTION 1 — TAILSCALE
 # Tailscale must be authenticated before NordVPN connects — NordLynx
@@ -75,8 +77,8 @@ nordvpn login || warn "nordvpn login failed — run it manually before continuin
 
 read -rp "Press ENTER once you have logged in to NordVPN in the browser..."
 
-nordvpn set autoconnect on us || warn "Failed to set autoconnect — try manually: nordvpn set autoconnect on us"
-success "NordVPN autoconnect (us) enabled"
+nordvpn set autoconnect on "${NORD_COUNTRY:-us}" || warn "Failed to set autoconnect — try manually: nordvpn set autoconnect on ${NORD_COUNTRY:-us}"
+success "NordVPN autoconnect (${NORD_COUNTRY:-us}) enabled"
 
 # =============================================================================
 # SECTION 3 — BASHRC ADDITIONS
