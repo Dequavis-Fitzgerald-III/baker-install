@@ -31,9 +31,6 @@ git -C "$BAKER_DIR" pull
 success "Baker repo up to date"
 
 source "$BAKER_CONFIG"
-# Default editable keys that may be missing from older .baker-config files
-LOCALE="${LOCALE:-en_GB.UTF-8}"
-KEYMAP="${KEYMAP:-us}"
 info "Profile: $PROFILE | GPU: $GPU"
 
 # Extracts a named [section] block from manifest content piped via stdin.
@@ -173,10 +170,10 @@ else
     DETECTED_DUAL_BOOT=false
 fi
 
-# HDD — check if the stored HDD_MOUNT is still present in fstab
-if [[ -n "$HDD_MOUNT" ]] && grep -qE "^\S+\s+${HDD_MOUNT}\s+" /etc/fstab; then
+# HDD — look for any fstab mount under /mnt/
+DETECTED_HDD_MOUNT=$(awk '$2 ~ /^\/mnt\// {print $2}' /etc/fstab | head -1)
+if [[ -n "$DETECTED_HDD_MOUNT" ]]; then
     DETECTED_HDD=true
-    DETECTED_HDD_MOUNT="$HDD_MOUNT"
 else
     DETECTED_HDD=false
     DETECTED_HDD_MOUNT=""
