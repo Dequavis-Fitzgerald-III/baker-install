@@ -688,6 +688,8 @@ if [[ "$GPU" == "nvidia" ]]; then
 fi
 
 sed -i "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"\$GRUB_CMDLINE\"|" /etc/default/grub
+sed -i "s|^GRUB_TIMEOUT=.*|GRUB_TIMEOUT=-1|" /etc/default/grub
+echo "GRUB timeout set to indefinite"
 
 # --- GRUB config: dual boot ---
 # os-prober is disabled by default in /etc/default/grub. Enable it so
