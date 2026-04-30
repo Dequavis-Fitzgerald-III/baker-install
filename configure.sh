@@ -39,10 +39,14 @@ success "Timezone: $TIMEZONE"
 # Uncomments the locale in locale.gen if not already active, then regenerates.
 # =============================================================================
 section "Locale"
-sed -i "s|^#${LOCALE}|${LOCALE}|" /etc/locale.gen
-locale-gen
+if ! locale -a 2>/dev/null | grep -qF "${LOCALE}"; then
+    sed -i "s|^#${LOCALE}|${LOCALE}|" /etc/locale.gen
+    locale-gen
+    success "Locale generated: $LOCALE"
+else
+    success "Locale already active, skipping generation"
+fi
 echo "LANG=$LOCALE" > /etc/locale.conf
-success "Locale: $LOCALE"
 
 # =============================================================================
 # CONSOLE KEYMAP
