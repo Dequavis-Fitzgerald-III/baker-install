@@ -31,6 +31,9 @@ git -C "$BAKER_DIR" pull
 success "Baker repo up to date"
 
 source "$BAKER_CONFIG"
+# Default editable keys that may be missing from older .baker-config files
+LOCALE="${LOCALE:-en_GB.UTF-8}"
+KEYMAP="${KEYMAP:-us}"
 info "Profile: $PROFILE | GPU: $GPU"
 
 # Extracts a named [section] block from manifest content piped via stdin.
@@ -139,12 +142,12 @@ success "SSH config up to date"
 # =============================================================================
 section "Syncing .baker-config"
 
-# GPU — check which driver module is loaded
-if lsmod | grep -q "^nvidia "; then
+# GPU — check loaded modules first, fall back to lspci
+if lsmod | grep -q "^nvidia " || lspci | grep -qi "vga.*nvidia"; then
     DETECTED_GPU="nvidia"
-elif lsmod | grep -q "^amdgpu "; then
+elif lsmod | grep -q "^amdgpu " || lspci | grep -qi "vga.*amd\|vga.*radeon"; then
     DETECTED_GPU="amd"
-elif lsmod | grep -q "^i915 "; then
+elif lsmod | grep -q "^i915 " || lspci | grep -qi "vga.*intel"; then
     DETECTED_GPU="intel"
 else
     DETECTED_GPU="none"
